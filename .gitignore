@@ -28,3 +28,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# Test results
+test-results/
+
+# npm lockfile (using pnpm)
+package-lock.json

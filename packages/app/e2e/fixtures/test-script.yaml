@@ -1,0 +1,21 @@
+metadata:
+  name: e2e-test-script
+  description: Minimal script for E2E testing
+  output:
+    resolution: "1920x1080"
+    fps: 30
+
+setup:
+  sources: []
+  initialLayout:
+    type: Single
+
+steps:
+  - action:
+      type: wait
+      durationMs: 500
+  - action:
+      type: caption
+      text: "E2E Test Caption"
+      position: bottom
+      durationMs: 500
