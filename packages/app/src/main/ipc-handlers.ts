@@ -1,4 +1,5 @@
-import { ipcMain } from 'electron'
+import { ipcMain, dialog, app } from 'electron'
+import { join } from 'path'
 import { nativeBridge } from './native-bridge'
 
 export function registerIpcHandlers(): void {
@@ -119,5 +120,33 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('terminal:resize', (_event, sourceId: number, rows: number, cols: number) => {
     return nativeBridge.terminalResize(sourceId, rows, cols)
+  })
+
+  // Script Engine
+  ipcMain.handle('script:run', (_event, yamlPath: string) => {
+    const outputDir = app.getPath('videos')
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
+    const outputPath = join(outputDir, `d3motap3-script-${timestamp}.mp4`)
+    return nativeBridge.scriptRun(yamlPath, outputPath)
+  })
+
+  ipcMain.handle('script:cancel', () => {
+    return nativeBridge.scriptCancel()
+  })
+
+  ipcMain.handle('script:status', () => {
+    return nativeBridge.scriptStatus()
+  })
+
+  // Dialog
+  ipcMain.handle('dialog:open-file', async (_event, options: { filters?: Array<{ name: string; extensions: string[] }> }) => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: options?.filters,
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
   })
 }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import { useRecordingStore } from './store/recording'
 import { SourcePanel } from './components/SourcePanel'
 import { LayoutSelector } from './components/LayoutSelector'
+import { ScriptPanel } from './components/ScriptPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 
 function formatTime(ms: number): string {
@@ -115,6 +116,7 @@ export function App() {
         <div className="sidebar">
           <SourcePanel />
           <LayoutSelector />
+          <ScriptPanel />
 
           {/* Existing recording controls section */}
           <div className="recording-section">

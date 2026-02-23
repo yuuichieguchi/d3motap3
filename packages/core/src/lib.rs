@@ -464,3 +464,24 @@ pub fn terminal_resize(source_id: u32, rows: u16, cols: u16) -> napi::Result<()>
     capture::terminal::terminal_resize(source_id, rows, cols)
         .map_err(|e| napi::Error::from_reason(e))
 }
+
+// -------------------------------------------------------------------------
+// Script Engine
+// -------------------------------------------------------------------------
+
+#[napi]
+pub fn script_run(yaml_path: String, output_path: String) -> napi::Result<()> {
+    script::engine::run_script(yaml_path, output_path)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn script_cancel() -> napi::Result<()> {
+    script::engine::cancel_script()
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn script_status() -> String {
+    script::engine::get_script_status_json()
+}

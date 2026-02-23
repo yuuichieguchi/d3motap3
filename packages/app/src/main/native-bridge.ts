@@ -24,6 +24,9 @@ import {
   isRecordingV2,
   terminalWriteInput,
   terminalResize,
+  scriptRun,
+  scriptCancel,
+  scriptStatus,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -164,5 +167,16 @@ export const nativeBridge = {
   },
   terminalResize(sourceId: number, rows: number, cols: number): void {
     terminalResize(sourceId, rows, cols)
+  },
+
+  // Script Engine
+  scriptRun(yamlPath: string, outputPath: string): void {
+    scriptRun(yamlPath, outputPath)
+  },
+  scriptCancel(): void {
+    scriptCancel()
+  },
+  scriptStatus(): string {
+    return scriptStatus()
   },
 }

@@ -9,6 +9,8 @@ use crate::capture;
 use crate::capture::source::{with_registry, SourceId};
 use crate::compositor::{Compositor, Layout};
 use crate::encoder::{EncoderConfig, EncoderQuality, FfmpegEncoder, OutputFormat};
+use crate::script::caption::CaptionRenderer;
+use crate::script::types::CaptionPosition;
 use crate::sync::SourceBufferManager;
 use std::sync::LazyLock;
 use std::path::PathBuf;
@@ -23,7 +25,17 @@ use std::time::{Duration, Instant};
 
 static RECORDING_STATE: LazyLock<Mutex<Option<RecordingHandle>>> = LazyLock::new(|| Mutex::new(None));
 static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
-static CURRENT_LAYOUT: LazyLock<Mutex<Option<Layout>>> = LazyLock::new(|| Mutex::new(None));
+pub(crate) static CURRENT_LAYOUT: LazyLock<Mutex<Option<Layout>>> = LazyLock::new(|| Mutex::new(None));
+
+/// Active caption for overlay rendering during recording.
+pub(crate) struct ActiveCaption {
+    pub text: String,
+    pub position: CaptionPosition,
+    pub font_size: f32,
+}
+
+pub(crate) static ACTIVE_CAPTION: LazyLock<Mutex<Option<ActiveCaption>>> =
+    LazyLock::new(|| Mutex::new(None));
 
 struct RecordingHandle {
     encode_thread: Option<thread::JoinHandle<Result<RecordingResult, String>>>,
@@ -246,7 +258,7 @@ pub struct RecordingConfigV2 {
 
 static RECORDING_V2_STATE: LazyLock<Mutex<Option<RecordingHandleV2>>> =
     LazyLock::new(|| Mutex::new(None));
-static RECORDING_V2_ACTIVE: AtomicBool = AtomicBool::new(false);
+pub(crate) static RECORDING_V2_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 struct RecordingHandleV2 {
     collector_thread: Option<thread::JoinHandle<()>>,
@@ -347,6 +359,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         }
 
         let mut compositor = Compositor::new(width as usize, height as usize);
+        let mut caption_renderer = CaptionRenderer::new();
 
         let encoder_config = EncoderConfig {
             width,
@@ -360,9 +373,28 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
 
         let mut encoder = FfmpegEncoder::new(encoder_config)?;
 
-        // Write first composed frame
-        let composed = compositor.compose(&layout, &first_frames);
-        encoder.write_frame(composed)?;
+        // Write first composed frame (read layout dynamically)
+        let current_layout = CURRENT_LAYOUT.lock()
+            .ok()
+            .and_then(|l| l.clone())
+            .unwrap_or(layout.clone());
+        let composed = compositor.compose(&current_layout, &first_frames);
+
+        // Apply caption overlay if active
+        let mut composed_owned = composed.to_vec();
+        if let Ok(caption_guard) = ACTIVE_CAPTION.lock() {
+            if let Some(ref caption) = *caption_guard {
+                caption_renderer.render_caption(
+                    &mut composed_owned,
+                    width,
+                    height,
+                    &caption.text,
+                    caption.position,
+                    caption.font_size,
+                );
+            }
+        }
+        encoder.write_frame(&composed_owned)?;
 
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
 
@@ -375,8 +407,27 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
             };
 
             if !frames.is_empty() {
-                let composed = compositor.compose(&layout, &frames);
-                encoder.write_frame(composed)?;
+                let current_layout = CURRENT_LAYOUT.lock()
+                    .ok()
+                    .and_then(|l| l.clone())
+                    .unwrap_or(layout.clone());
+                let composed = compositor.compose(&current_layout, &frames);
+
+                // Apply caption overlay
+                let mut composed_owned = composed.to_vec();
+                if let Ok(caption_guard) = ACTIVE_CAPTION.lock() {
+                    if let Some(ref caption) = *caption_guard {
+                        caption_renderer.render_caption(
+                            &mut composed_owned,
+                            width,
+                            height,
+                            &caption.text,
+                            caption.position,
+                            caption.font_size,
+                        );
+                    }
+                }
+                encoder.write_frame(&composed_owned)?;
             }
 
             thread::sleep(frame_interval);

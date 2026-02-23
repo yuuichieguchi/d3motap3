@@ -33,6 +33,7 @@ use std::time::Instant;
 pub struct TerminalHandle {
     writer: mpsc::Sender<Vec<u8>>,
     resize_tx: mpsc::Sender<(u16, u16)>,
+    output_tap: Arc<Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
 }
 
 static TERMINAL_HANDLES: LazyLock<Mutex<HashMap<SourceId, TerminalHandle>>> =
@@ -71,6 +72,40 @@ pub fn remove_terminal_handle(source_id: SourceId) {
     }
 }
 
+/// Subscribe to terminal output for the given source.
+/// Returns a receiver that will get copies of all PTY output bytes.
+pub fn subscribe_output(source_id: SourceId) -> Result<mpsc::Receiver<Vec<u8>>, String> {
+    let handles = TERMINAL_HANDLES
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    let handle = handles
+        .get(&source_id)
+        .ok_or_else(|| format!("Terminal {} not found", source_id))?;
+    let (tx, rx) = mpsc::channel();
+    let mut tap = handle
+        .output_tap
+        .lock()
+        .map_err(|e| format!("Tap lock error: {}", e))?;
+    *tap = Some(tx);
+    Ok(rx)
+}
+
+/// Unsubscribe from terminal output.
+pub fn unsubscribe_output(source_id: SourceId) -> Result<(), String> {
+    let handles = TERMINAL_HANDLES
+        .lock()
+        .map_err(|e| format!("Lock error: {}", e))?;
+    let handle = handles
+        .get(&source_id)
+        .ok_or_else(|| format!("Terminal {} not found", source_id))?;
+    let mut tap = handle
+        .output_tap
+        .lock()
+        .map_err(|e| format!("Tap lock error: {}", e))?;
+    *tap = None;
+    Ok(())
+}
+
 /// Register a terminal handle for the given source ID.
 pub fn register_terminal_handle(source_id: SourceId, handle: TerminalHandle) {
     if let Ok(mut handles) = TERMINAL_HANDLES.lock() {
@@ -91,6 +126,7 @@ pub struct TerminalCaptureSource {
     render_thread: Option<JoinHandle<()>>,
     input_tx: Option<mpsc::Sender<Vec<u8>>>,
     resize_tx: Option<mpsc::Sender<(u16, u16)>>,
+    output_tap: Arc<Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
 }
 
 impl TerminalCaptureSource {
@@ -108,6 +144,7 @@ impl TerminalCaptureSource {
             render_thread: None,
             input_tx: None,
             resize_tx: None,
+            output_tap: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -118,6 +155,7 @@ impl TerminalCaptureSource {
             (Some(input), Some(resize)) => Some(TerminalHandle {
                 writer: input.clone(),
                 resize_tx: resize.clone(),
+                output_tap: self.output_tap.clone(),
             }),
             _ => None,
         }
@@ -153,6 +191,8 @@ impl CaptureSource for TerminalCaptureSource {
         self.resize_tx = Some(resize_tx.clone());
 
         is_active.store(true, Ordering::Relaxed);
+
+        let output_tap = self.output_tap.clone();
 
         let render_thread = thread::spawn(move || {
             // Spawn PTY
@@ -194,6 +234,12 @@ impl CaptureSource for TerminalCaptureSource {
                 if let Some(data) = pty.try_read() {
                     grid.process_bytes(&data);
                     had_output = true;
+                    // Broadcast to output tap if subscribed
+                    if let Ok(tap) = output_tap.lock() {
+                        if let Some(ref tx) = *tap {
+                            let _ = tx.send(data);
+                        }
+                    }
                 }
 
                 // Render at capped framerate

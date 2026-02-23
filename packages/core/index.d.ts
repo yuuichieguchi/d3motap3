@@ -28,3 +28,50 @@ export declare function startRecording(displayIndex: number, width: number, heig
 export declare function stopRecording(): RecordingResultInfo
 export declare function getRecordingElapsedMs(): number
 export declare function isRecording(): boolean
+export declare function addSource(sourceType: string, configJson: string): number
+export interface SourceInfoJs {
+  id: number
+  name: string
+  width: number
+  height: number
+  isActive: boolean
+}
+export declare function removeSource(sourceId: number): void
+export declare function listSources(): Array<SourceInfoJs>
+export interface WindowInfoJs {
+  windowId: number
+  title: string
+  appName: string
+  isOnScreen: boolean
+}
+export declare function listWindows(): Array<WindowInfoJs>
+export interface WebcamInfoJs {
+  deviceIndex: number
+  name: string
+  description: string
+}
+export declare function listWebcams(): Array<WebcamInfoJs>
+export declare function setLayout(layoutJson: string): void
+export declare function getPreviewFrame(maxWidth: number, maxHeight: number): Buffer | null
+export declare function startRecordingV2(outputWidth: number, outputHeight: number, fps: number, outputPath: string, format: string, quality: string): void
+export declare function stopRecordingV2(): RecordingResultInfo
+export declare function getRecordingV2ElapsedMs(): number
+export declare function isRecordingV2(): boolean
+export interface AdbDeviceJs {
+  serial: string
+  model: string
+  state: string
+}
+export declare function listAndroidDevices(): Array<AdbDeviceJs>
+export declare function isAdbAvailable(): boolean
+export interface IosDeviceJs {
+  deviceId: string
+  name: string
+  model: string
+}
+export declare function listIosDevices(): Array<IosDeviceJs>
+export declare function terminalWriteInput(sourceId: number, data: Buffer): void
+export declare function terminalResize(sourceId: number, rows: number, cols: number): void
+export declare function scriptRun(yamlPath: string, outputPath: string): void
+export declare function scriptCancel(): void
+export declare function scriptStatus(): string

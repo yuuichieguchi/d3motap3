@@ -22,6 +22,10 @@ export const IPC_CHANNELS = {
   NATIVE_ADD: 'native:add',
   TERMINAL_WRITE_INPUT: 'terminal:write-input',
   TERMINAL_RESIZE: 'terminal:resize',
+  SCRIPT_RUN: 'script:run',
+  SCRIPT_CANCEL: 'script:cancel',
+  SCRIPT_STATUS: 'script:status',
+  DIALOG_OPEN_FILE: 'dialog:open-file',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

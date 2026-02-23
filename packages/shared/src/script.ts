@@ -83,3 +83,12 @@ export interface Script {
   setup: ScriptSetup
   steps: ScriptStep[]
 }
+
+export type ScriptExecutionStatus =
+  | { status: 'idle' }
+  | { status: 'parsing' }
+  | { status: 'setting_up' }
+  | { status: 'running'; current_step: number; total_steps: number; step_description: string }
+  | { status: 'stopping' }
+  | { status: 'completed'; output_path: string; duration_ms: number }
+  | { status: 'failed'; error: string; step: number | null }
