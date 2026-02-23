@@ -196,6 +196,52 @@ pub fn add_source(source_type: String, config_json: String) -> napi::Result<u32>
             src.start().map_err(|e| napi::Error::from_reason(e))?;
             Box::new(src)
         }
+        capture::SourceConfig::Android {
+            device_serial,
+            width,
+            height,
+        } => {
+            let mut src = mobile::android::AndroidCaptureSource::new(device_serial, width, height);
+            src.start().map_err(|e| napi::Error::from_reason(e))?;
+            Box::new(src)
+        }
+        capture::SourceConfig::Ios {
+            device_id,
+            width,
+            height,
+        } => {
+            let mut src = mobile::ios::IosCaptureSource::new(device_id, width, height);
+            src.start().map_err(|e| napi::Error::from_reason(e))?;
+            Box::new(src)
+        }
+        capture::SourceConfig::Terminal {
+            shell,
+            rows,
+            cols,
+            width,
+            height,
+        } => {
+            let config = capture::terminal::TerminalConfig {
+                shell,
+                rows,
+                cols,
+                width,
+                height,
+                ..capture::terminal::TerminalConfig::default()
+            };
+            let mut src = capture::terminal::TerminalCaptureSource::new(config);
+            src.start().map_err(|e| napi::Error::from_reason(e))?;
+            // Extract the handle channels before moving src into the registry.
+            let handle = src.take_handle();
+            let source: Box<dyn capture::CaptureSource> = Box::new(src);
+            let id = capture::with_registry(|reg| reg.add(source))
+                .map_err(|e| napi::Error::from_reason(e))?;
+            // Register the terminal handle so terminal_write_input / terminal_resize work.
+            if let Some(h) = handle {
+                capture::terminal::register_terminal_handle(id, h);
+            }
+            return Ok(id);
+        }
     };
 
     capture::with_registry(|reg| reg.add(source))
@@ -204,6 +250,8 @@ pub fn add_source(source_type: String, config_json: String) -> napi::Result<u32>
 
 #[napi]
 pub fn remove_source(source_id: u32) -> napi::Result<()> {
+    // Clean up terminal handle (no-op if this source is not a terminal).
+    capture::terminal::remove_terminal_handle(source_id);
     capture::with_registry(|reg| reg.remove(source_id))
         .map_err(|e| napi::Error::from_reason(e))?
         .map_err(|e| napi::Error::from_reason(e))
@@ -346,4 +394,73 @@ pub fn get_recording_v2_elapsed_ms() -> i64 {
 #[napi]
 pub fn is_recording_v2() -> bool {
     recording::is_recording_v2()
+}
+
+// -------------------------------------------------------------------------
+// Mobile Device Listing
+// -------------------------------------------------------------------------
+
+#[napi(object)]
+pub struct AdbDeviceJs {
+    pub serial: String,
+    pub model: String,
+    pub state: String,
+}
+
+#[napi]
+pub fn list_android_devices() -> napi::Result<Vec<AdbDeviceJs>> {
+    mobile::adb::list_devices()
+        .map(|devices| {
+            devices.into_iter()
+                .map(|d| AdbDeviceJs {
+                    serial: d.serial,
+                    model: d.model,
+                    state: d.state,
+                })
+                .collect()
+        })
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn is_adb_available() -> bool {
+    mobile::adb::is_adb_available()
+}
+
+#[napi(object)]
+pub struct IosDeviceJs {
+    pub device_id: String,
+    pub name: String,
+    pub model: String,
+}
+
+#[napi]
+pub fn list_ios_devices() -> napi::Result<Vec<IosDeviceJs>> {
+    mobile::ios::list_ios_devices()
+        .map(|devices| {
+            devices.into_iter()
+                .map(|d| IosDeviceJs {
+                    device_id: d.device_id,
+                    name: d.name,
+                    model: d.model,
+                })
+                .collect()
+        })
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+// -------------------------------------------------------------------------
+// Terminal PTY
+// -------------------------------------------------------------------------
+
+#[napi]
+pub fn terminal_write_input(source_id: u32, data: napi::bindgen_prelude::Buffer) -> napi::Result<()> {
+    capture::terminal::terminal_write_input(source_id, &data)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn terminal_resize(source_id: u32, rows: u16, cols: u16) -> napi::Result<()> {
+    capture::terminal::terminal_resize(source_id, rows, cols)
+        .map_err(|e| napi::Error::from_reason(e))
 }

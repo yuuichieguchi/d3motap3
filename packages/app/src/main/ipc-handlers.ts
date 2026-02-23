@@ -66,6 +66,19 @@ export function registerIpcHandlers(): void {
     return nativeBridge.listWebcams()
   })
 
+  // Mobile devices
+  ipcMain.handle('sources:list-available-android', () => {
+    return nativeBridge.listAndroidDevices()
+  })
+
+  ipcMain.handle('sources:list-available-ios', () => {
+    return nativeBridge.listIosDevices()
+  })
+
+  ipcMain.handle('sources:is-adb-available', () => {
+    return nativeBridge.isAdbAvailable()
+  })
+
   // Layout
   ipcMain.handle('layout:set', (_event, layoutJson: string) => {
     return nativeBridge.setLayout(layoutJson)
@@ -97,5 +110,14 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('recording:is-recording-v2', () => {
     return nativeBridge.isRecordingV2()
+  })
+
+  // Terminal PTY
+  ipcMain.handle('terminal:write-input', (_event, sourceId: number, data: Buffer) => {
+    return nativeBridge.terminalWriteInput(sourceId, data)
+  })
+
+  ipcMain.handle('terminal:resize', (_event, sourceId: number, rows: number, cols: number) => {
+    return nativeBridge.terminalResize(sourceId, rows, cols)
   })
 }

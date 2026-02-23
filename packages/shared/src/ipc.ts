@@ -13,10 +13,15 @@ export const IPC_CHANNELS = {
   SOURCES_REMOVE: 'sources:remove',
   SOURCES_LIST_AVAILABLE_WINDOWS: 'sources:list-available-windows',
   SOURCES_LIST_AVAILABLE_WEBCAMS: 'sources:list-available-webcams',
+  SOURCES_LIST_AVAILABLE_ANDROID: 'sources:list-available-android',
+  SOURCES_LIST_AVAILABLE_IOS: 'sources:list-available-ios',
+  SOURCES_IS_ADB_AVAILABLE: 'sources:is-adb-available',
   LAYOUT_SET: 'layout:set',
   PREVIEW_FRAME: 'preview:frame',
   NATIVE_HELLO: 'native:hello',
   NATIVE_ADD: 'native:add',
+  TERMINAL_WRITE_INPUT: 'terminal:write-input',
+  TERMINAL_RESIZE: 'terminal:resize',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

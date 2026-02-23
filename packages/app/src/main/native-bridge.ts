@@ -13,12 +13,17 @@ import {
   listSources,
   listWindows,
   listWebcams,
+  listAndroidDevices,
+  isAdbAvailable,
+  listIosDevices,
   setLayout,
   getPreviewFrame,
   startRecordingV2,
   stopRecordingV2,
   getRecordingV2ElapsedMs,
   isRecordingV2,
+  terminalWriteInput,
+  terminalResize,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -26,6 +31,8 @@ import type {
   SourceInfoJs,
   WindowInfoJs,
   WebcamInfoJs,
+  AdbDeviceJs,
+  IosDeviceJs,
 } from '@d3motap3/core'
 import { app } from 'electron'
 import { join } from 'path'
@@ -97,6 +104,17 @@ export const nativeBridge = {
     return listWebcams()
   },
 
+  // Mobile device listing
+  listAndroidDevices(): AdbDeviceJs[] {
+    return listAndroidDevices()
+  },
+  isAdbAvailable(): boolean {
+    return isAdbAvailable()
+  },
+  listIosDevices(): IosDeviceJs[] {
+    return listIosDevices()
+  },
+
   // Layout
   setLayout(layoutJson: string): void {
     setLayout(layoutJson)
@@ -138,5 +156,13 @@ export const nativeBridge = {
   },
   isRecordingV2(): boolean {
     return isRecordingV2()
+  },
+
+  // Terminal PTY
+  terminalWriteInput(sourceId: number, data: Buffer): void {
+    terminalWriteInput(sourceId, data)
+  },
+  terminalResize(sourceId: number, rows: number, cols: number): void {
+    terminalResize(sourceId, rows, cols)
   },
 }

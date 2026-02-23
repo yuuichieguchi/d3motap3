@@ -13,6 +13,8 @@ pub mod webcam;
 #[cfg(target_os = "macos")]
 pub use macos::*;
 
+pub mod terminal;
+
 pub mod source;
 pub use source::{CaptureSource, SourceConfig, SourceId, SourceInfo, SourceRegistry, with_registry};
 

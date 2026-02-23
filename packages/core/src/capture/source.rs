@@ -30,6 +30,23 @@ pub enum SourceConfig {
         width: u32,
         height: u32,
     },
+    Android {
+        device_serial: String,
+        width: u32,
+        height: u32,
+    },
+    Ios {
+        device_id: String,
+        width: u32,
+        height: u32,
+    },
+    Terminal {
+        shell: String,
+        rows: u16,
+        cols: u16,
+        width: u32,
+        height: u32,
+    },
 }
 
 /// Info about an active source (returned to JS).
@@ -366,6 +383,67 @@ mod tests {
                 assert_eq!(height, 768);
             }
             _ => panic!("Expected SourceConfig::Window after round-trip"),
+        }
+    }
+
+    #[test]
+    fn test_source_config_serde_android() {
+        let config = SourceConfig::Android {
+            device_serial: "emulator-5554".to_string(),
+            width: 1080,
+            height: 1920,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: SourceConfig = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            SourceConfig::Android { device_serial, width, height } => {
+                assert_eq!(device_serial, "emulator-5554");
+                assert_eq!(width, 1080);
+                assert_eq!(height, 1920);
+            }
+            _ => panic!("Expected SourceConfig::Android"),
+        }
+    }
+
+    #[test]
+    fn test_source_config_serde_ios() {
+        let config = SourceConfig::Ios {
+            device_id: "device-1".to_string(),
+            width: 1170,
+            height: 2532,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: SourceConfig = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            SourceConfig::Ios { device_id, width, height } => {
+                assert_eq!(device_id, "device-1");
+                assert_eq!(width, 1170);
+                assert_eq!(height, 2532);
+            }
+            _ => panic!("Expected SourceConfig::Ios"),
+        }
+    }
+
+    #[test]
+    fn test_source_config_serde_terminal() {
+        let config = SourceConfig::Terminal {
+            shell: "/bin/zsh".to_string(),
+            rows: 24,
+            cols: 80,
+            width: 960,
+            height: 540,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: SourceConfig = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            SourceConfig::Terminal { shell, rows, cols, width, height } => {
+                assert_eq!(shell, "/bin/zsh");
+                assert_eq!(rows, 24);
+                assert_eq!(cols, 80);
+                assert_eq!(width, 960);
+                assert_eq!(height, 540);
+            }
+            _ => panic!("Expected SourceConfig::Terminal after round-trip"),
         }
     }
 }
