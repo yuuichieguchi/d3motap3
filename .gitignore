@@ -34,3 +34,9 @@ test-results/
 
 # npm lockfile (using pnpm)
 package-lock.json
+
+# Claude Code
+.claude/
+
+# Playwright report
+playwright-report/
