@@ -19,8 +19,6 @@ pub struct WindowInfo {
     pub window_id: u32,
     pub title: String,
     pub app_name: String,
-    pub width: u32,
-    pub height: u32,
     pub is_on_screen: bool,
 }
 
@@ -41,8 +39,6 @@ pub fn list_windows_impl() -> Result<Vec<WindowInfo>, String> {
                 window_id: w.window_id(),
                 title: w.title().unwrap_or_default(),
                 app_name,
-                width: 0,  // SCWindow doesn't directly expose width/height
-                height: 0, // Will use configured capture dimensions instead
                 is_on_screen: w.is_on_screen(),
             }
         })

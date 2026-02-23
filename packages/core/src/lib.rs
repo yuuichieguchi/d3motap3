@@ -161,7 +161,7 @@ pub struct SourceInfoJs {
 /// Add a capture source. `source_type` is "display", "window", or "webcam".
 /// `config_json` is a JSON string with source-specific config.
 #[napi]
-pub fn add_source(source_type: String, config_json: String) -> napi::Result<u32> {
+pub fn add_source(_source_type: String, config_json: String) -> napi::Result<u32> {
     let config: capture::SourceConfig = serde_json::from_str(&config_json)
         .map_err(|e| napi::Error::from_reason(format!("Invalid config JSON: {}", e)))?;
 

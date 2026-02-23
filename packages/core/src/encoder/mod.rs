@@ -287,10 +287,6 @@ impl FfmpegEncoder {
         })
     }
 
-    /// Number of frames written so far.
-    pub fn frame_count(&self) -> u64 {
-        self.frame_count
-    }
 }
 
 /// If the FFmpeg process is still running when the encoder is dropped
