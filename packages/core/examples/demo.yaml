@@ -1,0 +1,76 @@
+metadata:
+  name: "CLI Tool Demo"
+  description: "Demonstrates building and testing a Rust CLI tool with two terminal panes"
+  output:
+    resolution: "1920x1080"
+    fps: 30
+
+setup:
+  sources:
+    - id: "term1"
+      type: "terminal"
+      shell: "/bin/zsh"
+    - id: "term2"
+      type: "terminal"
+      shell: "/bin/zsh"
+  initialLayout:
+    type: "single"
+    primary: "term1"
+
+steps:
+  # Build the project and wait for compilation to finish
+  - action:
+      type: "terminal"
+      source: "term1"
+      command: "cargo build --release"
+      waitFor:
+        type: "text"
+        pattern: "Finished"
+        timeoutMs: 60000
+    caption:
+      text: "Building the project"
+      position: "top"
+
+  # Show a caption explaining what just happened
+  - action:
+      type: "caption"
+      text: "Project compiled successfully"
+      position: "bottom"
+      durationMs: 3000
+
+  # Brief pause before zooming in
+  - action:
+      type: "wait"
+      durationMs: 1000
+
+  # Zoom into the terminal output to highlight the build result
+  - action:
+      type: "zoom"
+      target:
+        source: "term1"
+        focusX: 0.5
+        focusY: 0.8
+      level: 2.0
+      durationMs: 800
+
+  # Switch to side-by-side layout to show both terminals
+  - action:
+      type: "set_layout"
+      layout:
+        type: "side_by_side"
+        left: "term1"
+        right: "term2"
+      transitionMs: 500
+
+  # Run tests in the second terminal
+  - action:
+      type: "terminal"
+      source: "term2"
+      command: "cargo test"
+
+  # Final caption summarizing the demo
+  - action:
+      type: "caption"
+      text: "Build and test workflow complete"
+      position: "center"
+      durationMs: 4000
