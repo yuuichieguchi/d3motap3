@@ -1,0 +1,12 @@
+[workspace]
+members = ["packages/core"]
+resolver = "2"
+
+[profile.dev]
+opt-level = 0
+debug = true
+
+[profile.release]
+opt-level = 3
+lto = true
+strip = "symbols"

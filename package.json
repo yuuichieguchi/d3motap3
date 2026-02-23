@@ -1,0 +1,18 @@
+{
+  "name": "d3motap3",
+  "private": true,
+  "description": "Developer demo video tool with multi-source recording and scripted automation",
+  "scripts": {
+    "dev": "pnpm --filter @d3motap3/app dev",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r clean",
+    "test": "pnpm -r test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.6.5",
+  "pnpm": {
+    "onlyBuiltDependencies": ["electron", "esbuild"]
+  }
+}
