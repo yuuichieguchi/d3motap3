@@ -37,6 +37,13 @@ pub enum Layout {
         /// Scale of the PiP window relative to output (0.0-1.0). Default 0.25.
         pip_scale: f32,
     },
+    Zoomed {
+        source: SourceId,
+        zoom_level: f32,
+        focus_x: f32,
+        focus_y: f32,
+        previous_layout: Box<Layout>,
+    },
 }
 
 /// Rectangle in pixel coordinates.
@@ -162,6 +169,56 @@ impl Compositor {
                         height: pip_h,
                     };
                     self.blit_scaled(frame, &rect);
+                }
+            }
+            Layout::Zoomed {
+                source,
+                zoom_level,
+                focus_x,
+                focus_y,
+                ..
+            } => {
+                if let Some(frame) = frames.get(source) {
+                    let zoom = zoom_level.clamp(1.0, 10.0);
+                    let src_w = frame.width as f32;
+                    let src_h = frame.height as f32;
+
+                    // Calculate the visible region in source coordinates
+                    let view_w = src_w / zoom;
+                    let view_h = src_h / zoom;
+
+                    // Center the view on the focus point, clamped to source bounds
+                    let cx = (focus_x * src_w).clamp(view_w / 2.0, src_w - view_w / 2.0);
+                    let cy = (focus_y * src_h).clamp(view_h / 2.0, src_h - view_h / 2.0);
+
+                    let src_x = (cx - view_w / 2.0) as usize;
+                    let src_y = (cy - view_h / 2.0) as usize;
+                    let src_view_w = view_w as usize;
+                    let src_view_h = view_h as usize;
+
+                    let dst_stride = self.output_width * 4;
+                    let src_stride = frame.bytes_per_row;
+
+                    for dy in 0..self.output_height {
+                        let sy = src_y + (dy * src_view_h) / self.output_height;
+                        if sy >= frame.height {
+                            continue;
+                        }
+                        for dx in 0..self.output_width {
+                            let sx = src_x + (dx * src_view_w) / self.output_width;
+                            if sx >= frame.width {
+                                continue;
+                            }
+                            let src_off = sy * src_stride + sx * 4;
+                            let dst_off = dy * dst_stride + dx * 4;
+                            if src_off + 4 <= frame.data.len()
+                                && dst_off + 4 <= self.output_buffer.len()
+                            {
+                                self.output_buffer[dst_off..dst_off + 4]
+                                    .copy_from_slice(&frame.data[src_off..src_off + 4]);
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -558,5 +615,82 @@ mod tests {
         assert_eq!(output[center + 1], 0);   // G
         assert_eq!(output[center + 2], 0);   // R
         assert_eq!(output[center + 3], 255); // A
+    }
+
+    // ==================== Zoomed Layout ====================
+
+    #[test]
+    fn test_layout_zoomed_serde_roundtrip() {
+        let layout = Layout::Zoomed {
+            source: 1,
+            zoom_level: 2.0,
+            focus_x: 0.5,
+            focus_y: 0.5,
+            previous_layout: Box::new(Layout::Single { source: 1 }),
+        };
+        let json = serde_json::to_string(&layout).unwrap();
+        let parsed: Layout = serde_json::from_str(&json).unwrap();
+        match parsed {
+            Layout::Zoomed { source, zoom_level, focus_x, focus_y, .. } => {
+                assert_eq!(source, 1);
+                assert!((zoom_level - 2.0).abs() < f32::EPSILON);
+                assert!((focus_x - 0.5).abs() < f32::EPSILON);
+                assert!((focus_y - 0.5).abs() < f32::EPSILON);
+            }
+            _ => panic!("Expected Layout::Zoomed"),
+        }
+    }
+
+    #[test]
+    fn test_compose_zoomed_layout() {
+        let mut comp = Compositor::new(100, 100);
+        // Create a 100x100 frame with a distinctive pattern:
+        // top-left quadrant red, rest blue
+        let mut data = vec![0u8; 100 * 100 * 4];
+        for y in 0..100 {
+            for x in 0..100 {
+                let off = (y * 100 + x) * 4;
+                if x < 50 && y < 50 {
+                    // Red (BGRA: 0, 0, 255, 255)
+                    data[off] = 0;
+                    data[off + 1] = 0;
+                    data[off + 2] = 255;
+                    data[off + 3] = 255;
+                } else {
+                    // Blue (BGRA: 255, 0, 0, 255)
+                    data[off] = 255;
+                    data[off + 1] = 0;
+                    data[off + 2] = 0;
+                    data[off + 3] = 255;
+                }
+            }
+        }
+        let frame = Arc::new(CapturedFrame {
+            data,
+            width: 100,
+            height: 100,
+            bytes_per_row: 400,
+            timestamp_ms: 0.0,
+        });
+
+        let mut frames = HashMap::new();
+        frames.insert(1u32, frame);
+
+        // Zoom 2x centered at top-left quadrant center (0.25, 0.25)
+        let layout = Layout::Zoomed {
+            source: 1,
+            zoom_level: 2.0,
+            focus_x: 0.25,
+            focus_y: 0.25,
+            previous_layout: Box::new(Layout::Single { source: 1 }),
+        };
+        let output = comp.compose(&layout, &frames);
+
+        // At 2x zoom centered at (0.25, 0.25), the visible region is
+        // x: 0.0-0.5, y: 0.0-0.5 of the source — which is entirely the red quadrant.
+        // Center pixel should be red.
+        let center = (50 * 100 + 50) * 4;
+        assert_eq!(output[center + 2], 255, "center R should be 255 (red)");
+        assert_eq!(output[center], 0, "center B should be 0");
     }
 }

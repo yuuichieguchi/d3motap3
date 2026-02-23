@@ -27,6 +27,11 @@ import {
   scriptRun,
   scriptCancel,
   scriptStatus,
+  aiStartNarration,
+  aiStartScriptGen,
+  aiStatus,
+  aiCancel,
+  aiReset,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -178,5 +183,22 @@ export const nativeBridge = {
   },
   scriptStatus(): string {
     return scriptStatus()
+  },
+
+  // AI Integration
+  aiStartNarration(description: string, apiKey: string): void {
+    aiStartNarration(description, apiKey)
+  },
+  aiStartScriptGen(description: string, apiKey: string): void {
+    aiStartScriptGen(description, apiKey)
+  },
+  aiStatus(): string {
+    return aiStatus()
+  },
+  aiCancel(): void {
+    aiCancel()
+  },
+  aiReset(): void {
+    aiReset()
   },
 }

@@ -91,6 +91,12 @@ pub enum ScriptAction {
         #[serde(default, rename = "durationMs")]
         duration_ms: Option<u64>,
     },
+    Zoom {
+        target: ZoomTarget,
+        level: f32,
+        #[serde(default, rename = "durationMs")]
+        duration_ms: Option<u64>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,6 +123,19 @@ pub enum CaptionPosition {
     Top,
     Bottom,
     Center,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZoomTarget {
+    pub source: String,
+    #[serde(default = "default_focus", rename = "focusX")]
+    pub focus_x: f32,
+    #[serde(default = "default_focus", rename = "focusY")]
+    pub focus_y: f32,
+}
+
+fn default_focus() -> f32 {
+    0.5
 }
 
 #[cfg(test)]
@@ -363,5 +382,54 @@ timeoutMs: 10000
 
         let center: CaptionPosition = serde_yml::from_str("center").unwrap();
         assert_eq!(center, CaptionPosition::Center);
+    }
+
+    // ==================== Zoom Action Deserialization ====================
+
+    #[test]
+    fn test_deserialize_zoom_action() {
+        let yaml = r#"
+type: zoom
+target:
+  source: "term1"
+level: 2.0
+durationMs: 3000
+"#;
+        let action: ScriptAction = serde_yml::from_str(yaml).unwrap();
+        match action {
+            ScriptAction::Zoom {
+                target,
+                level,
+                duration_ms,
+            } => {
+                assert_eq!(target.source, "term1");
+                assert!((level - 2.0).abs() < f32::EPSILON);
+                assert_eq!(duration_ms, Some(3000));
+            }
+            _ => panic!("Expected ScriptAction::Zoom"),
+        }
+    }
+
+    #[test]
+    fn test_deserialize_zoom_action_no_duration() {
+        let yaml = r#"
+type: zoom
+target:
+  source: "cam1"
+level: 1.5
+"#;
+        let action: ScriptAction = serde_yml::from_str(yaml).unwrap();
+        match action {
+            ScriptAction::Zoom {
+                target,
+                level,
+                duration_ms,
+            } => {
+                assert_eq!(target.source, "cam1");
+                assert!((level - 1.5).abs() < f32::EPSILON);
+                assert!(duration_ms.is_none());
+            }
+            _ => panic!("Expected ScriptAction::Zoom"),
+        }
     }
 }

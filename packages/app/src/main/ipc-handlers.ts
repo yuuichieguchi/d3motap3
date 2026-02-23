@@ -138,6 +138,27 @@ export function registerIpcHandlers(): void {
     return nativeBridge.scriptStatus()
   })
 
+  // AI Integration
+  ipcMain.handle('ai:start-narration', (_event, description: string, apiKey: string) => {
+    return nativeBridge.aiStartNarration(description, apiKey)
+  })
+
+  ipcMain.handle('ai:start-script-gen', (_event, description: string, apiKey: string) => {
+    return nativeBridge.aiStartScriptGen(description, apiKey)
+  })
+
+  ipcMain.handle('ai:status', () => {
+    return nativeBridge.aiStatus()
+  })
+
+  ipcMain.handle('ai:cancel', () => {
+    return nativeBridge.aiCancel()
+  })
+
+  ipcMain.handle('ai:reset', () => {
+    return nativeBridge.aiReset()
+  })
+
   // Dialog
   ipcMain.handle('dialog:open-file', async (_event, options: { filters?: Array<{ name: string; extensions: string[] }> }) => {
     const result = await dialog.showOpenDialog({

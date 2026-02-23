@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { hello, add, listDisplays, startCapture, stopCapture, getLatestFrame, getFrameCount, isCapturing, ffmpegVersion, isFfmpegAvailable, startRecording, stopRecording, getRecordingElapsedMs, isRecording } = nativeBinding
+const { hello, add, listDisplays, startCapture, stopCapture, getLatestFrame, getFrameCount, isCapturing, ffmpegVersion, isFfmpegAvailable, startRecording, stopRecording, getRecordingElapsedMs, isRecording, addSource, removeSource, listSources, listWindows, listWebcams, setLayout, getPreviewFrame, startRecordingV2, stopRecordingV2, getRecordingV2ElapsedMs, isRecordingV2, listAndroidDevices, isAdbAvailable, listIosDevices, terminalWriteInput, terminalResize, scriptRun, scriptCancel, scriptStatus, aiStartNarration, aiStartScriptGen, aiStatus, aiCancel, aiReset } = nativeBinding
 
 module.exports.hello = hello
 module.exports.add = add
@@ -326,3 +326,27 @@ module.exports.startRecording = startRecording
 module.exports.stopRecording = stopRecording
 module.exports.getRecordingElapsedMs = getRecordingElapsedMs
 module.exports.isRecording = isRecording
+module.exports.addSource = addSource
+module.exports.removeSource = removeSource
+module.exports.listSources = listSources
+module.exports.listWindows = listWindows
+module.exports.listWebcams = listWebcams
+module.exports.setLayout = setLayout
+module.exports.getPreviewFrame = getPreviewFrame
+module.exports.startRecordingV2 = startRecordingV2
+module.exports.stopRecordingV2 = stopRecordingV2
+module.exports.getRecordingV2ElapsedMs = getRecordingV2ElapsedMs
+module.exports.isRecordingV2 = isRecordingV2
+module.exports.listAndroidDevices = listAndroidDevices
+module.exports.isAdbAvailable = isAdbAvailable
+module.exports.listIosDevices = listIosDevices
+module.exports.terminalWriteInput = terminalWriteInput
+module.exports.terminalResize = terminalResize
+module.exports.scriptRun = scriptRun
+module.exports.scriptCancel = scriptCancel
+module.exports.scriptStatus = scriptStatus
+module.exports.aiStartNarration = aiStartNarration
+module.exports.aiStartScriptGen = aiStartScriptGen
+module.exports.aiStatus = aiStatus
+module.exports.aiCancel = aiCancel
+module.exports.aiReset = aiReset

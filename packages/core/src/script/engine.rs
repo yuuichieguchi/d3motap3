@@ -270,7 +270,7 @@ fn setup_source(source: &ScriptSource) -> Result<SourceId, String> {
                 .map_err(|e| format!("Failed to start terminal: {}", e))?;
             let handle = src.take_handle();
             let boxed: Box<dyn capture::CaptureSource> = Box::new(src);
-            let id = capture::source::with_registry(|reg| reg.add(boxed))
+            let id = capture::source::try_with_registry(|reg| reg.add(boxed))
                 .map_err(|e| format!("Registry error: {}", e))?;
             if let Some(h) = handle {
                 terminal::register_terminal_handle(id, h);
@@ -478,6 +478,38 @@ fn execute_action(
 
             Ok(())
         }
+
+        ScriptAction::Zoom {
+            target,
+            level,
+            duration_ms,
+        } => {
+            let source_id = source_map
+                .get(&target.source)
+                .copied()
+                .ok_or_else(|| format!("Zoom source '{}' not found", target.source))?;
+
+            // Get current layout to restore later
+            let previous_layout = recording::get_layout_impl()
+                .unwrap_or(compositor::Layout::Single { source: source_id });
+
+            // Set zoomed layout
+            recording::set_layout_impl(compositor::Layout::Zoomed {
+                source: source_id,
+                zoom_level: *level,
+                focus_x: target.focus_x,
+                focus_y: target.focus_y,
+                previous_layout: Box::new(previous_layout.clone()),
+            });
+
+            // Wait for duration if specified, then restore
+            if let Some(ms) = duration_ms {
+                interruptible_sleep(Duration::from_millis(*ms));
+                recording::set_layout_impl(previous_layout);
+            }
+
+            Ok(())
+        }
     }
 }
 
@@ -522,6 +554,9 @@ fn describe_action(action: &ScriptAction) -> String {
                 text.clone()
             };
             format!("Caption: {}", preview)
+        }
+        ScriptAction::Zoom { target, level, .. } => {
+            format!("Zoom {}x on {}", level, target.source)
         }
     }
 }
@@ -819,5 +854,19 @@ mod tests {
         let result = resolve_terminal_source(&None, &source_map);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No terminal sources"));
+    }
+
+    // ==================== describe_action for Zoom ====================
+
+    #[test]
+    fn test_describe_action_zoom() {
+        let action = ScriptAction::Zoom {
+            target: super::super::types::ZoomTarget { source: "term1".to_string(), focus_x: 0.5, focus_y: 0.5 },
+            level: 2.0,
+            duration_ms: Some(3000),
+        };
+        let desc = describe_action(&action);
+        assert!(desc.starts_with("Zoom"), "Expected 'Zoom' prefix, got: {}", desc);
+        assert!(desc.contains("2"), "Expected zoom level in description, got: {}", desc);
     }
 }

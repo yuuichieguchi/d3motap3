@@ -26,6 +26,11 @@ export const IPC_CHANNELS = {
   SCRIPT_CANCEL: 'script:cancel',
   SCRIPT_STATUS: 'script:status',
   DIALOG_OPEN_FILE: 'dialog:open-file',
+  AI_START_NARRATION: 'ai:start-narration',
+  AI_START_SCRIPT_GEN: 'ai:start-script-gen',
+  AI_STATUS: 'ai:status',
+  AI_CANCEL: 'ai:cancel',
+  AI_RESET: 'ai:reset',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

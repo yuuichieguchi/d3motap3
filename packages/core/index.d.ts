@@ -28,7 +28,6 @@ export declare function startRecording(displayIndex: number, width: number, heig
 export declare function stopRecording(): RecordingResultInfo
 export declare function getRecordingElapsedMs(): number
 export declare function isRecording(): boolean
-export declare function addSource(sourceType: string, configJson: string): number
 export interface SourceInfoJs {
   id: number
   name: string
@@ -36,6 +35,11 @@ export interface SourceInfoJs {
   height: number
   isActive: boolean
 }
+/**
+ * Add a capture source. `source_type` is "display", "window", or "webcam".
+ * `config_json` is a JSON string with source-specific config.
+ */
+export declare function addSource(sourceType: string, configJson: string): number
 export declare function removeSource(sourceId: number): void
 export declare function listSources(): Array<SourceInfoJs>
 export interface WindowInfoJs {
@@ -75,3 +79,8 @@ export declare function terminalResize(sourceId: number, rows: number, cols: num
 export declare function scriptRun(yamlPath: string, outputPath: string): void
 export declare function scriptCancel(): void
 export declare function scriptStatus(): string
+export declare function aiStartNarration(description: string, apiKey: string): void
+export declare function aiStartScriptGen(description: string, apiKey: string): void
+export declare function aiStatus(): string
+export declare function aiCancel(): void
+export declare function aiReset(): void

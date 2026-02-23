@@ -234,7 +234,7 @@ pub fn add_source(source_type: String, config_json: String) -> napi::Result<u32>
             // Extract the handle channels before moving src into the registry.
             let handle = src.take_handle();
             let source: Box<dyn capture::CaptureSource> = Box::new(src);
-            let id = capture::with_registry(|reg| reg.add(source))
+            let id = capture::try_with_registry(|reg| reg.add(source))
                 .map_err(|e| napi::Error::from_reason(e))?;
             // Register the terminal handle so terminal_write_input / terminal_resize work.
             if let Some(h) = handle {
@@ -244,7 +244,7 @@ pub fn add_source(source_type: String, config_json: String) -> napi::Result<u32>
         }
     };
 
-    capture::with_registry(|reg| reg.add(source))
+    capture::try_with_registry(|reg| reg.add(source))
         .map_err(|e| napi::Error::from_reason(e))
 }
 
@@ -484,4 +484,37 @@ pub fn script_cancel() -> napi::Result<()> {
 #[napi]
 pub fn script_status() -> String {
     script::engine::get_script_status_json()
+}
+
+// -------------------------------------------------------------------------
+// AI Integration
+// -------------------------------------------------------------------------
+
+#[napi]
+pub fn ai_start_narration(description: String, api_key: String) -> napi::Result<()> {
+    ai::start_narration(description, api_key)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn ai_start_script_gen(description: String, api_key: String) -> napi::Result<()> {
+    ai::start_script_gen(description, api_key)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn ai_status() -> String {
+    ai::get_ai_status_json()
+}
+
+#[napi]
+pub fn ai_cancel() -> napi::Result<()> {
+    ai::cancel_ai()
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn ai_reset() -> napi::Result<()> {
+    ai::reset_ai_status()
+        .map_err(|e| napi::Error::from_reason(e))
 }

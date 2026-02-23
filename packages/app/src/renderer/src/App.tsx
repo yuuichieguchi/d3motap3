@@ -3,6 +3,7 @@ import { useRecordingStore } from './store/recording'
 import { SourcePanel } from './components/SourcePanel'
 import { LayoutSelector } from './components/LayoutSelector'
 import { ScriptPanel } from './components/ScriptPanel'
+import { AiPanel } from './components/AiPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
 
 function formatTime(ms: number): string {
@@ -117,6 +118,7 @@ export function App() {
           <SourcePanel />
           <LayoutSelector />
           <ScriptPanel />
+          <AiPanel />
 
           {/* Existing recording controls section */}
           <div className="recording-section">

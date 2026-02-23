@@ -123,6 +123,20 @@ fn validate_action_references(
             let context = format!("step {} set_layout", step_index);
             validate_layout_references(layout, valid_ids, &context)?;
         }
+        ScriptAction::Zoom { target, level, .. } => {
+            if !valid_ids.contains(target.source.as_str()) {
+                return Err(format!(
+                    "Step {} zoom action references unknown source: '{}'",
+                    step_index, target.source
+                ));
+            }
+            if *level < 1.0 || *level > 10.0 {
+                return Err(format!(
+                    "Step {} zoom level must be between 1.0 and 10.0, got: {}",
+                    step_index, level
+                ));
+            }
+        }
         ScriptAction::Wait { .. } | ScriptAction::Caption { .. } => {}
     }
     Ok(())
@@ -448,5 +462,100 @@ steps:
         let result2 = parse_script_str(yaml_high_fps);
         assert!(result2.is_err());
         assert!(result2.unwrap_err().contains("fps"));
+    }
+
+    // ==================== Zoom Source Validation ====================
+
+    #[test]
+    fn test_validate_zoom_source_reference() {
+        let yaml = r#"
+metadata:
+  name: "Zoom Test"
+  output:
+    resolution: "1920x1080"
+    fps: 30
+setup:
+  sources:
+    - id: term
+      type: terminal
+  initialLayout:
+    type: single
+    primary: term
+steps:
+  - action:
+      type: zoom
+      target:
+        source: nonexistent_source
+      level: 2.0
+      durationMs: 1000
+"#;
+        let result = parse_script_str(yaml);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("nonexistent_source"),
+            "Expected error about nonexistent source, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_parse_valid_zoom_script() {
+        let yaml = r#"
+metadata:
+  name: "Zoom Demo"
+  output:
+    resolution: "1920x1080"
+    fps: 30
+setup:
+  sources:
+    - id: term
+      type: terminal
+  initialLayout:
+    type: single
+    primary: term
+steps:
+  - action:
+      type: zoom
+      target:
+        source: term
+      level: 2.0
+      durationMs: 3000
+"#;
+        let result = parse_script_str(yaml);
+        assert!(result.is_ok(), "Expected Ok, got: {:?}", result.err());
+    }
+
+    #[test]
+    fn test_validate_zoom_level_out_of_range() {
+        let yaml = r#"
+metadata:
+  name: "Bad Zoom"
+  output:
+    resolution: "1920x1080"
+    fps: 30
+setup:
+  sources:
+    - id: term
+      type: terminal
+  initialLayout:
+    type: single
+    primary: term
+steps:
+  - action:
+      type: zoom
+      target:
+        source: term
+      level: 0.5
+      durationMs: 1000
+"#;
+        let result = parse_script_str(yaml);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("zoom level"),
+            "Expected zoom level error, got: {}",
+            err
+        );
     }
 }

@@ -16,7 +16,7 @@ pub use macos::*;
 pub mod terminal;
 
 pub mod source;
-pub use source::{CaptureSource, SourceConfig, SourceId, SourceInfo, SourceRegistry, with_registry};
+pub use source::{CaptureSource, SourceConfig, SourceId, SourceInfo, SourceRegistry, try_with_registry, with_registry};
 
 // -------------------------------------------------------------------------
 // Shared data types (used by both macOS impl and napi exports)

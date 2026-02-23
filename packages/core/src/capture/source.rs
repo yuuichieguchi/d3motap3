@@ -90,12 +90,12 @@ impl SourceRegistry {
         }
     }
 
-    pub fn add(&mut self, source: Box<dyn CaptureSource>) -> SourceId {
+    pub fn add(&mut self, source: Box<dyn CaptureSource>) -> Result<SourceId, String> {
         let id = self.next_id;
         self.next_id = self.next_id.checked_add(1)
-            .expect("SourceId overflow: too many sources created");
+            .ok_or_else(|| "SourceId overflow: too many sources created".to_string())?;
         self.sources.insert(id, source);
-        id
+        Ok(id)
     }
 
     pub fn remove(&mut self, id: SourceId) -> Result<(), String> {
@@ -166,6 +166,14 @@ where
     Ok(f(&mut reg))
 }
 
+pub fn try_with_registry<F, T>(f: F) -> Result<T, String>
+where
+    F: FnOnce(&mut SourceRegistry) -> Result<T, String>,
+{
+    let mut reg = GLOBAL_REGISTRY.lock().map_err(|e| format!("Registry lock error: {}", e))?;
+    f(&mut reg)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -234,7 +242,7 @@ mod tests {
     fn test_registry_add_and_list() {
         let mut registry = SourceRegistry::new();
         let source = MockCaptureSource::new("display-0", 1920, 1080);
-        let id = registry.add(Box::new(source));
+        let id = registry.add(Box::new(source)).unwrap();
 
         let list = registry.list();
         assert_eq!(list.len(), 1);
@@ -250,8 +258,8 @@ mod tests {
     #[test]
     fn test_registry_add_multiple() {
         let mut registry = SourceRegistry::new();
-        let id1 = registry.add(Box::new(MockCaptureSource::new("source-a", 800, 600)));
-        let id2 = registry.add(Box::new(MockCaptureSource::new("source-b", 1280, 720)));
+        let id1 = registry.add(Box::new(MockCaptureSource::new("source-a", 800, 600))).unwrap();
+        let id2 = registry.add(Box::new(MockCaptureSource::new("source-b", 1280, 720))).unwrap();
 
         assert_eq!(registry.len(), 2);
         assert_ne!(id1, id2);
@@ -261,7 +269,7 @@ mod tests {
     #[test]
     fn test_registry_remove_existing() {
         let mut registry = SourceRegistry::new();
-        let id = registry.add(Box::new(MockCaptureSource::new("temp", 640, 480)));
+        let id = registry.add(Box::new(MockCaptureSource::new("temp", 640, 480))).unwrap();
         assert_eq!(registry.len(), 1);
 
         let result = registry.remove(id);
@@ -274,7 +282,7 @@ mod tests {
     fn test_registry_remove_stops_active() {
         let mut registry = SourceRegistry::new();
         let source = MockCaptureSource::new("active-src", 1920, 1080);
-        let id = registry.add(Box::new(source));
+        let id = registry.add(Box::new(source)).unwrap();
 
         // Start the source so it becomes active.
         registry.get_mut(id).unwrap().start().unwrap();
@@ -300,7 +308,7 @@ mod tests {
     #[test]
     fn test_registry_get() {
         let mut registry = SourceRegistry::new();
-        let id = registry.add(Box::new(MockCaptureSource::new("webcam-0", 640, 480)));
+        let id = registry.add(Box::new(MockCaptureSource::new("webcam-0", 640, 480))).unwrap();
 
         let source = registry.get(id).unwrap();
         assert_eq!(source.dimensions(), (640, 480));
@@ -310,8 +318,8 @@ mod tests {
     #[test]
     fn test_registry_active_sources() {
         let mut registry = SourceRegistry::new();
-        let id1 = registry.add(Box::new(MockCaptureSource::new("inactive", 800, 600)));
-        let id2 = registry.add(Box::new(MockCaptureSource::new("active", 1920, 1080)));
+        let id1 = registry.add(Box::new(MockCaptureSource::new("inactive", 800, 600))).unwrap();
+        let id2 = registry.add(Box::new(MockCaptureSource::new("active", 1920, 1080))).unwrap();
 
         // Start only the second source.
         registry.get_mut(id2).unwrap().start().unwrap();
@@ -330,7 +338,7 @@ mod tests {
         let mut registry = SourceRegistry::new();
         assert!(registry.is_empty());
 
-        registry.add(Box::new(MockCaptureSource::new("src", 100, 100)));
+        registry.add(Box::new(MockCaptureSource::new("src", 100, 100))).unwrap();
         assert!(!registry.is_empty());
     }
 
@@ -445,5 +453,40 @@ mod tests {
             }
             _ => panic!("Expected SourceConfig::Terminal after round-trip"),
         }
+    }
+
+    // ==================== SourceRegistry::add() Result Return Tests ====================
+
+    #[test]
+    fn test_registry_add_returns_result_ok() {
+        let mut registry = SourceRegistry::new();
+        let source = MockCaptureSource::new("test-source", 1920, 1080);
+
+        let result: Result<SourceId, String> = registry.add(Box::new(source));
+
+        assert!(result.is_ok());
+        let id = result.unwrap();
+        assert_eq!(id, 1);
+        assert_eq!(registry.len(), 1);
+        assert_eq!(registry.get(id).unwrap().name(), "test-source");
+    }
+
+    #[test]
+    fn test_registry_add_overflow_returns_error() {
+        let mut registry = SourceRegistry::new();
+        registry.next_id = u32::MAX;
+
+        let source = MockCaptureSource::new("overflow-source", 640, 480);
+        let result: Result<SourceId, String> = registry.add(Box::new(source));
+
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.to_lowercase().contains("overflow"),
+            "Error message should contain 'overflow', got: {}",
+            err_msg
+        );
+        assert_eq!(registry.len(), 0, "Registry should remain empty after overflow");
+        assert_eq!(registry.next_id, u32::MAX, "next_id should not be mutated after overflow");
     }
 }
