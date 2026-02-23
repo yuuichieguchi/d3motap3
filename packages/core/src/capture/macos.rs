@@ -22,7 +22,7 @@ use std::sync::{Arc, Mutex};
 
 /// Per-instance capture source backed by ScreenCaptureKit's `SCStream`.
 pub struct DisplayCaptureSource {
-    display_index: u32,
+    display_id: u32,
     width: u32,
     height: u32,
     source_name: String,
@@ -56,13 +56,13 @@ impl DisplayCaptureSource {
 
         let source_name = format!(
             "Display {} ({}x{})",
-            display.display_id(),
+            display_index + 1,
             display.width(),
             display.height()
         );
 
         Ok(Self {
-            display_index,
+            display_id: display.display_id(),
             width,
             height,
             source_name,
@@ -83,13 +83,15 @@ impl CaptureSource for DisplayCaptureSource {
         let content = SCShareableContent::get()
             .map_err(|e| format!("Failed to get shareable content: {}", e))?;
         let displays = content.displays();
-        let display = displays.get(self.display_index as usize).ok_or_else(|| {
-            format!(
-                "Display index {} out of range (have {})",
-                self.display_index,
-                displays.len()
-            )
-        })?;
+        let display = displays
+            .iter()
+            .find(|d| d.display_id() == self.display_id)
+            .ok_or_else(|| {
+                format!(
+                    "Display with ID {} no longer available",
+                    self.display_id
+                )
+            })?;
 
         let filter = SCContentFilter::create()
             .with_display(display)

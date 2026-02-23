@@ -19,6 +19,9 @@ mod platform {
     use crate::capture::source::CaptureSource;
     use crate::capture::CapturedFrame;
 
+    use nokhwa::pixel_format::RgbAFormat;
+    use nokhwa::utils::{CameraIndex, RequestedFormat, RequestedFormatType};
+    use nokhwa::CallbackCamera;
     use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex};
 
@@ -55,9 +58,8 @@ mod platform {
     /// A capture source for USB-connected iOS devices.
     ///
     /// Uses nokhwa's AVFoundation backend, similar to `WebcamCaptureSource`,
-    /// but targets iOS devices specifically. Full frame streaming is deferred
-    /// to a future phase; currently only device detection and pipeline
-    /// integration are implemented.
+    /// but targets iOS devices specifically. Frames are captured in RGBA
+    /// format and converted to BGRA to match the `CapturedFrame` convention.
     pub struct IosCaptureSource {
         device_id: String,
         width: u32,
@@ -66,7 +68,14 @@ mod platform {
         latest_frame: Arc<Mutex<Option<Arc<CapturedFrame>>>>,
         is_active: Arc<AtomicBool>,
         frame_count: Arc<AtomicU64>,
+        camera: Option<CallbackCamera>,
     }
+
+    // SAFETY: `CallbackCamera` internally uses `Arc<FairMutex<Camera>>` for
+    // thread-safe access. The only non-Send field is the raw camera backend
+    // pointer, which is always accessed behind the mutex. We need Send for
+    // the `CaptureSource` trait bound.
+    unsafe impl Send for IosCaptureSource {}
 
     impl IosCaptureSource {
         pub fn new(device_id: String, width: u32, height: u32) -> Self {
@@ -79,6 +88,7 @@ mod platform {
                 latest_frame: Arc::new(Mutex::new(None)),
                 is_active: Arc::new(AtomicBool::new(false)),
                 frame_count: Arc::new(AtomicU64::new(0)),
+                camera: None,
             }
         }
 
@@ -93,14 +103,69 @@ mod platform {
             if self.is_active.load(Ordering::Relaxed) {
                 return Err("Already active".to_string());
             }
-            // Full camera streaming implementation deferred to next phase.
-            // Device detection works but actual frame capture requires
-            // wiring up nokhwa's CallbackCamera with iOS-specific handling.
-            Err("iOS capture not yet fully implemented — device detection works".to_string())
+
+            let device_index: u32 = self
+                .device_id
+                .parse()
+                .map_err(|e| format!("Invalid device ID '{}': {}", self.device_id, e))?;
+
+            let index = CameraIndex::Index(device_index);
+            let requested = RequestedFormat::new::<RgbAFormat>(
+                RequestedFormatType::AbsoluteHighestFrameRate,
+            );
+
+            let latest_frame = Arc::clone(&self.latest_frame);
+            let is_active = Arc::clone(&self.is_active);
+            let frame_count = Arc::clone(&self.frame_count);
+            let width = self.width as usize;
+            let height = self.height as usize;
+
+            let mut camera = CallbackCamera::new(index, requested, move |buffer| {
+                if !is_active.load(Ordering::Relaxed) {
+                    return;
+                }
+
+                // Get raw RGBA bytes from the buffer
+                let rgba_data = buffer.buffer().to_vec();
+
+                // RGBA -> BGRA conversion: swap R and B channels
+                let mut bgra_data = rgba_data;
+                for pixel in bgra_data.chunks_exact_mut(4) {
+                    pixel.swap(0, 2);
+                }
+
+                let frame = Arc::new(CapturedFrame {
+                    data: bgra_data,
+                    width,
+                    height,
+                    bytes_per_row: width * 4,
+                    timestamp_ms: 0.0, // nokhwa does not provide timestamps
+                });
+
+                if let Ok(mut latest) = latest_frame.lock() {
+                    *latest = Some(frame);
+                }
+                frame_count.fetch_add(1, Ordering::Relaxed);
+            })
+            .map_err(|e| format!("Failed to create iOS capture: {}", e))?;
+
+            camera
+                .open_stream()
+                .map_err(|e| format!("Failed to open iOS capture stream: {}", e))?;
+
+            self.frame_count.store(0, Ordering::Relaxed);
+            self.is_active.store(true, Ordering::Relaxed);
+            self.camera = Some(camera);
+            Ok(())
         }
 
         fn stop(&mut self) -> Result<(), String> {
             self.is_active.store(false, Ordering::Relaxed);
+            if let Some(mut camera) = self.camera.take() {
+                camera
+                    .stop_stream()
+                    .map_err(|e| format!("Failed to stop iOS capture: {}", e))?;
+            }
             Ok(())
         }
 
@@ -127,8 +192,9 @@ mod platform {
 
     impl Drop for IosCaptureSource {
         fn drop(&mut self) {
-            if self.is_active.load(Ordering::Relaxed) {
-                let _ = self.stop();
+            self.is_active.store(false, Ordering::Relaxed);
+            if let Some(mut camera) = self.camera.take() {
+                let _ = camera.stop_stream();
             }
         }
     }
@@ -233,9 +299,10 @@ mod tests {
 
     #[test]
     fn test_ios_source_start_returns_err() {
-        // On macOS: returns "not yet fully implemented" error.
+        // On macOS: fails because "device-1" is not a valid numeric index,
+        // or because no real iOS device is connected.
         // On other platforms: returns "only supported on macOS" error.
-        // Either way, start() should return Err.
+        // Either way, start() should return Err without a real device.
         let mut source = IosCaptureSource::new("device-1".to_string(), 1170, 2532);
         let result = source.start();
         assert!(result.is_err());
@@ -260,18 +327,6 @@ mod tests {
     fn test_ios_source_device_id_accessor() {
         let source = IosCaptureSource::new("my-device".to_string(), 1920, 1080);
         assert_eq!(source.device_id(), "my-device");
-    }
-
-    #[cfg(target_os = "macos")]
-    #[test]
-    fn test_ios_source_start_err_message() {
-        let mut source = IosCaptureSource::new("device-1".to_string(), 1170, 2532);
-        let err = source.start().unwrap_err();
-        assert!(
-            err.contains("not yet fully implemented"),
-            "Expected 'not yet fully implemented' in error, got: {}",
-            err
-        );
     }
 
     #[cfg(target_os = "macos")]

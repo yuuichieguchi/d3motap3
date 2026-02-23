@@ -9,6 +9,8 @@ mod macos;
 pub mod window;
 #[cfg(target_os = "macos")]
 pub mod webcam;
+#[cfg(target_os = "macos")]
+pub mod region;
 
 #[cfg(target_os = "macos")]
 pub use macos::*;

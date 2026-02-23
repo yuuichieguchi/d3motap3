@@ -21,10 +21,25 @@ interface WebcamInfo {
   description: string
 }
 
+interface AndroidDevice {
+  serial: string
+  model: string
+  state: string
+}
+
+interface IosDevice {
+  deviceId: string
+  name: string
+  model: string
+}
+
 interface SourcesState {
   activeSources: SourceInfo[]
   availableWindows: WindowInfo[]
   availableWebcams: WebcamInfo[]
+  availableAndroid: AndroidDevice[]
+  availableIos: IosDevice[]
+  isAdbAvailable: boolean
   error: string | null
 
   setActiveSources: (sources: SourceInfo[]) => void
@@ -37,12 +52,18 @@ interface SourcesState {
   refreshSources: () => Promise<void>
   refreshAvailableWindows: () => Promise<void>
   refreshAvailableWebcams: () => Promise<void>
+  refreshAvailableAndroid: () => Promise<void>
+  refreshAvailableIos: () => Promise<void>
+  checkAdbAvailable: () => Promise<void>
 }
 
 export const useSourcesStore = create<SourcesState>((set) => ({
   activeSources: [],
   availableWindows: [],
   availableWebcams: [],
+  availableAndroid: [],
+  availableIos: [],
+  isAdbAvailable: false,
   error: null,
 
   setActiveSources: (activeSources) => set({ activeSources }),
@@ -102,6 +123,35 @@ export const useSourcesStore = create<SourcesState>((set) => ({
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       set({ error: message })
+    }
+  },
+
+  refreshAvailableAndroid: async () => {
+    try {
+      const devices = await window.api.invoke('sources:list-available-android') as AndroidDevice[]
+      set({ availableAndroid: devices, error: null })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ error: message })
+    }
+  },
+
+  refreshAvailableIos: async () => {
+    try {
+      const devices = await window.api.invoke('sources:list-available-ios') as IosDevice[]
+      set({ availableIos: devices, error: null })
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      set({ error: message })
+    }
+  },
+
+  checkAdbAvailable: async () => {
+    try {
+      const available = await window.api.invoke('sources:is-adb-available') as boolean
+      set({ isAdbAvailable: available })
+    } catch {
+      set({ isAdbAvailable: false })
     }
   },
 }))

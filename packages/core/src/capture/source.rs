@@ -47,6 +47,13 @@ pub enum SourceConfig {
         width: u32,
         height: u32,
     },
+    Region {
+        display_index: u32,
+        x: u32,
+        y: u32,
+        region_width: u32,
+        region_height: u32,
+    },
 }
 
 /// Info about an active source (returned to JS).
@@ -488,5 +495,28 @@ mod tests {
         );
         assert_eq!(registry.len(), 0, "Registry should remain empty after overflow");
         assert_eq!(registry.next_id, u32::MAX, "next_id should not be mutated after overflow");
+    }
+
+    #[test]
+    fn test_source_config_serde_region() {
+        let config = SourceConfig::Region {
+            display_index: 0,
+            x: 100,
+            y: 200,
+            region_width: 800,
+            region_height: 600,
+        };
+        let json = serde_json::to_string(&config).unwrap();
+        let deserialized: SourceConfig = serde_json::from_str(&json).unwrap();
+        match deserialized {
+            SourceConfig::Region { display_index, x, y, region_width, region_height } => {
+                assert_eq!(display_index, 0);
+                assert_eq!(x, 100);
+                assert_eq!(y, 200);
+                assert_eq!(region_width, 800);
+                assert_eq!(region_height, 600);
+            }
+            _ => panic!("Expected SourceConfig::Region"),
+        }
     }
 }

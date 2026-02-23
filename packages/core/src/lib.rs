@@ -214,6 +214,20 @@ pub fn add_source(_source_type: String, config_json: String) -> napi::Result<u32
             src.start().map_err(|e| napi::Error::from_reason(e))?;
             Box::new(src)
         }
+        capture::SourceConfig::Region {
+            display_index,
+            x,
+            y,
+            region_width,
+            region_height,
+        } => {
+            let mut src = capture::region::RegionCaptureSource::new(
+                display_index, x, y, region_width, region_height,
+            )
+            .map_err(|e| napi::Error::from_reason(e))?;
+            src.start().map_err(|e| napi::Error::from_reason(e))?;
+            Box::new(src)
+        }
         capture::SourceConfig::Terminal {
             shell,
             rows,

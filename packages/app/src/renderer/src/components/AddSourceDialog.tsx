@@ -8,9 +8,14 @@ interface AddSourceDialogProps {
 }
 
 export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
-  const [sourceType, setSourceType] = useState<'Display' | 'Window' | 'Webcam' | 'Terminal' | 'Android' | 'Ios'>('Display')
+  const [sourceType, setSourceType] = useState<'Display' | 'Window' | 'Webcam' | 'Terminal' | 'Android' | 'Ios' | 'Region'>('Display')
   const sourcesStore = useSourcesStore()
   const recordingStore = useRecordingStore()
+  const [regionDisplay, setRegionDisplay] = useState(0)
+  const [regionX, setRegionX] = useState(0)
+  const [regionY, setRegionY] = useState(0)
+  const [regionW, setRegionW] = useState(800)
+  const [regionH, setRegionH] = useState(600)
 
   useEffect(() => {
     if (open) {
@@ -18,6 +23,11 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
         sourcesStore.refreshAvailableWindows()
       } else if (sourceType === 'Webcam') {
         sourcesStore.refreshAvailableWebcams()
+      } else if (sourceType === 'Android') {
+        sourcesStore.checkAdbAvailable()
+        sourcesStore.refreshAvailableAndroid()
+      } else if (sourceType === 'Ios') {
+        sourcesStore.refreshAvailableIos()
       }
     }
   }, [open, sourceType])
@@ -40,12 +50,13 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
 
         <div className="control-group">
           <label>Type</label>
-          <select value={sourceType} onChange={(e) => setSourceType(e.target.value as 'Display' | 'Window' | 'Webcam' | 'Terminal' | 'Android' | 'Ios')}>
+          <select value={sourceType} onChange={(e) => setSourceType(e.target.value as 'Display' | 'Window' | 'Webcam' | 'Terminal' | 'Android' | 'Ios' | 'Region')}>
             <option value="Display">Display</option>
             <option value="Window">Window</option>
             <option value="Webcam">Webcam</option>
             <option value="Android">Android</option>
             <option value="Ios">iOS</option>
+            <option value="Region">Region</option>
             <option value="Terminal">Terminal</option>
           </select>
         </div>
@@ -97,32 +108,87 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
 
         {sourceType === 'Android' && (
           <div className="source-list">
-            <p>Connect an Android device via USB with USB debugging enabled.</p>
-            <button
-              className="source-option-btn"
-              onClick={() => handleAdd({
-                device_serial: 'auto',
-                width: 1080,
-                height: 1920,
-              })}
-            >
-              Auto-detect Android Device (1080x1920)
-            </button>
+            {!sourcesStore.isAdbAvailable ? (
+              <p>ADB is not installed or not found in PATH. Install Android SDK Platform Tools to use Android sources.</p>
+            ) : sourcesStore.availableAndroid.length === 0 ? (
+              <p>No Android devices detected. Connect a device via USB with USB debugging enabled.</p>
+            ) : (
+              sourcesStore.availableAndroid.map((d) => (
+                <button
+                  key={d.serial}
+                  className="source-option-btn"
+                  onClick={() => handleAdd({
+                    device_serial: d.serial,
+                    width: 1080,
+                    height: 1920,
+                  })}
+                >
+                  {d.model || d.serial} ({d.state})
+                </button>
+              ))
+            )}
           </div>
         )}
 
         {sourceType === 'Ios' && (
           <div className="source-list">
-            <p>Connect an iOS device via USB (macOS only).</p>
+            {sourcesStore.availableIos.length === 0 ? (
+              <p>No iOS devices detected. Connect a device via USB (macOS only).</p>
+            ) : (
+              sourcesStore.availableIos.map((d) => (
+                <button
+                  key={d.deviceId}
+                  className="source-option-btn"
+                  onClick={() => handleAdd({
+                    device_id: d.deviceId,
+                    width: 1170,
+                    height: 2532,
+                  })}
+                >
+                  {d.name} ({d.model})
+                </button>
+              ))
+            )}
+          </div>
+        )}
+
+        {sourceType === 'Region' && (
+          <div className="source-list">
+            <div className="control-group">
+              <label>Display</label>
+              <select value={regionDisplay} onChange={(e) => setRegionDisplay(Number(e.target.value))}>
+                {recordingStore.displays.map((d, i) => (
+                  <option key={d.id} value={i}>Display {i + 1} ({d.width}x{d.height})</option>
+                ))}
+              </select>
+            </div>
+            <div className="control-group">
+              <label>X</label>
+              <input type="number" min={0} value={regionX} onChange={(e) => setRegionX(Number(e.target.value))} />
+            </div>
+            <div className="control-group">
+              <label>Y</label>
+              <input type="number" min={0} value={regionY} onChange={(e) => setRegionY(Number(e.target.value))} />
+            </div>
+            <div className="control-group">
+              <label>Width</label>
+              <input type="number" min={1} value={regionW} onChange={(e) => setRegionW(Number(e.target.value))} />
+            </div>
+            <div className="control-group">
+              <label>Height</label>
+              <input type="number" min={1} value={regionH} onChange={(e) => setRegionH(Number(e.target.value))} />
+            </div>
             <button
               className="source-option-btn"
               onClick={() => handleAdd({
-                device_id: 'auto',
-                width: 1170,
-                height: 2532,
+                display_index: regionDisplay,
+                x: regionX,
+                y: regionY,
+                region_width: regionW,
+                region_height: regionH,
               })}
             >
-              Auto-detect iOS Device (1170x2532)
+              Add Region
             </button>
           </div>
         )}
