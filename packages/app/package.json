@@ -8,21 +8,24 @@
     "build": "electron-vite build",
     "preview": "electron-vite preview",
     "clean": "rm -rf out dist",
-    "test": "echo \"No tests yet\""
+    "test": "echo \"No tests yet\"",
+    "test:e2e": "npx playwright test --config=e2e/playwright.config.ts"
   },
   "dependencies": {
-    "zustand": "^5.0.0",
+    "@d3motap3/core": "workspace:*",
     "@d3motap3/shared": "workspace:*",
-    "@d3motap3/core": "workspace:*"
+    "zustand": "^5.0.0"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-vite": "^2.3.0",
-    "@vitejs/plugin-react": "^4.3.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "@playwright/test": "^1.58.2",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "electron": "^33.4.11",
+    "electron-playwright-helpers": "^2.1.0",
+    "electron-vite": "^2.3.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
     "typescript": "^5.7.0"
   }
 }
