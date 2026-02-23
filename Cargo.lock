@@ -224,7 +224,6 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "nokhwa",
- "once_cell",
  "screencapturekit",
  "serde",
  "serde_json",

@@ -4,7 +4,7 @@
 //! and `SourceRegistry` for managing active sources.
 
 use super::CapturedFrame;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -139,7 +139,7 @@ impl Default for SourceRegistry {
     }
 }
 
-static GLOBAL_REGISTRY: Lazy<Mutex<SourceRegistry>> = Lazy::new(|| Mutex::new(SourceRegistry::new()));
+static GLOBAL_REGISTRY: LazyLock<Mutex<SourceRegistry>> = LazyLock::new(|| Mutex::new(SourceRegistry::new()));
 
 pub fn with_registry<F, R>(f: F) -> Result<R, String>
 where
@@ -153,14 +153,13 @@ where
 mod tests {
     use super::*;
     use crate::capture::CapturedFrame;
-    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
     use std::sync::Arc;
 
     // ==================== Mock Implementation ====================
 
     struct MockCaptureSource {
-        active: AtomicBool,
-        frame_count: AtomicU64,
+        active: bool,
+        frame_count: u64,
         width: u32,
         height: u32,
         source_name: String,
@@ -170,8 +169,8 @@ mod tests {
     impl MockCaptureSource {
         fn new(name: &str, width: u32, height: u32) -> Self {
             Self {
-                active: AtomicBool::new(false),
-                frame_count: AtomicU64::new(0),
+                active: false,
+                frame_count: 0,
                 width,
                 height,
                 source_name: name.to_string(),
@@ -182,12 +181,12 @@ mod tests {
 
     impl CaptureSource for MockCaptureSource {
         fn start(&mut self) -> Result<(), String> {
-            self.active.store(true, Ordering::SeqCst);
+            self.active = true;
             Ok(())
         }
 
         fn stop(&mut self) -> Result<(), String> {
-            self.active.store(false, Ordering::SeqCst);
+            self.active = false;
             Ok(())
         }
 
@@ -196,7 +195,7 @@ mod tests {
         }
 
         fn frame_count(&self) -> u64 {
-            self.frame_count.load(Ordering::SeqCst)
+            self.frame_count
         }
 
         fn dimensions(&self) -> (u32, u32) {
@@ -204,7 +203,7 @@ mod tests {
         }
 
         fn is_active(&self) -> bool {
-            self.active.load(Ordering::SeqCst)
+            self.active
         }
 
         fn name(&self) -> &str {

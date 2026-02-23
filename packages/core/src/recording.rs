@@ -10,7 +10,7 @@ use crate::capture::source::{with_registry, SourceId};
 use crate::compositor::{Compositor, Layout};
 use crate::encoder::{EncoderConfig, EncoderQuality, FfmpegEncoder, OutputFormat};
 use crate::sync::SourceBufferManager;
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -21,9 +21,9 @@ use std::time::{Duration, Instant};
 // Global state
 // ---------------------------------------------------------------------------
 
-static RECORDING_STATE: Lazy<Mutex<Option<RecordingHandle>>> = Lazy::new(|| Mutex::new(None));
+static RECORDING_STATE: LazyLock<Mutex<Option<RecordingHandle>>> = LazyLock::new(|| Mutex::new(None));
 static RECORDING_ACTIVE: AtomicBool = AtomicBool::new(false);
-static CURRENT_LAYOUT: Lazy<Mutex<Option<Layout>>> = Lazy::new(|| Mutex::new(None));
+static CURRENT_LAYOUT: LazyLock<Mutex<Option<Layout>>> = LazyLock::new(|| Mutex::new(None));
 
 struct RecordingHandle {
     encode_thread: Option<thread::JoinHandle<Result<RecordingResult, String>>>,
@@ -244,8 +244,8 @@ pub struct RecordingConfigV2 {
     pub quality: String,
 }
 
-static RECORDING_V2_STATE: Lazy<Mutex<Option<RecordingHandleV2>>> =
-    Lazy::new(|| Mutex::new(None));
+static RECORDING_V2_STATE: LazyLock<Mutex<Option<RecordingHandleV2>>> =
+    LazyLock::new(|| Mutex::new(None));
 static RECORDING_V2_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 struct RecordingHandleV2 {
@@ -316,7 +316,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
                     if let Some(src) = reg.get(id) {
                         if let Some(frame) = src.latest_frame() {
                             if let Ok(mut bm) = bm_collector.lock() {
-                                bm.push_frame(id, frame);
+                                let _ = bm.push_frame(id, frame);
                             }
                         }
                     }

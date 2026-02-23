@@ -109,12 +109,11 @@ impl SourceBufferManager {
         self.buffers.remove(&id);
     }
 
-    pub fn push_frame(&mut self, id: SourceId, frame: Arc<CapturedFrame>) {
-        if let Some(buf) = self.buffers.get_mut(&id) {
-            buf.push_frame(frame);
-        } else {
-            debug_assert!(false, "push_frame called for unregistered source {}", id);
-        }
+    pub fn push_frame(&mut self, id: SourceId, frame: Arc<CapturedFrame>) -> Result<(), String> {
+        let buf = self.buffers.get_mut(&id)
+            .ok_or_else(|| format!("No buffer registered for source {}", id))?;
+        buf.push_frame(frame);
+        Ok(())
     }
 
     pub fn get_latest_frame(&self, id: SourceId) -> Option<Arc<CapturedFrame>> {
@@ -246,7 +245,7 @@ mod tests {
         let mut mgr = SourceBufferManager::new(30);
         mgr.add_source(1);
         let frame = make_frame(4, 4, 99.0);
-        mgr.push_frame(1, frame.clone());
+        mgr.push_frame(1, frame.clone()).unwrap();
 
         let latest = mgr
             .get_latest_frame(1)
@@ -268,8 +267,8 @@ mod tests {
         let mut mgr = SourceBufferManager::new(30);
         mgr.add_source(1);
         mgr.add_source(2);
-        mgr.push_frame(1, make_frame(1, 1, 10.0));
-        mgr.push_frame(2, make_frame(1, 1, 20.0));
+        mgr.push_frame(1, make_frame(1, 1, 10.0)).unwrap();
+        mgr.push_frame(2, make_frame(1, 1, 20.0)).unwrap();
 
         let frames = mgr.get_latest_frames();
         assert_eq!(frames.len(), 2);
@@ -278,11 +277,11 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "push_frame called for unregistered source")]
     fn test_buffer_manager_push_unknown_source() {
         let mut mgr = SourceBufferManager::new(30);
-        // In debug builds, pushing to an unregistered source triggers debug_assert.
-        mgr.push_frame(999, make_frame(1, 1, 50.0));
+        let result = mgr.push_frame(999, make_frame(1, 1, 50.0));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("No buffer registered for source 999"));
     }
 
     #[test]

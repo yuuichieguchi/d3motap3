@@ -10,7 +10,7 @@
 
 use super::source::CaptureSource;
 use super::{CapturedFrame, DisplayInfoData};
-use once_cell::sync::Lazy;
+use std::sync::LazyLock;
 use screencapturekit::cv::CVPixelBufferLockFlags;
 use screencapturekit::prelude::*;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -206,8 +206,8 @@ impl SCStreamOutputTrait for InstanceFrameHandler {
 // Legacy global capture state (used by recording.rs / lib.rs)
 // ===========================================================================
 
-static CAPTURE_STATE: Lazy<Mutex<Option<CaptureStateInner>>> = Lazy::new(|| Mutex::new(None));
-static LATEST_FRAME: Lazy<Mutex<Option<CapturedFrame>>> = Lazy::new(|| Mutex::new(None));
+static CAPTURE_STATE: LazyLock<Mutex<Option<CaptureStateInner>>> = LazyLock::new(|| Mutex::new(None));
+static LATEST_FRAME: LazyLock<Mutex<Option<CapturedFrame>>> = LazyLock::new(|| Mutex::new(None));
 static FRAME_COUNT: AtomicU64 = AtomicU64::new(0);
 static IS_CAPTURING: AtomicBool = AtomicBool::new(false);
 
