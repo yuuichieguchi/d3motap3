@@ -1,0 +1,49 @@
+import { app, BrowserWindow } from 'electron'
+import { join } from 'path'
+import { registerIpcHandlers } from './ipc-handlers'
+
+const is = {
+  dev: process.env.NODE_ENV === 'development' || !app.isPackaged
+}
+
+function createWindow(): BrowserWindow {
+  const win = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    minWidth: 960,
+    minHeight: 600,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    },
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 16, y: 16 }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    win.loadURL(process.env['ELECTRON_RENDERER_URL'])
+  } else {
+    win.loadFile(join(__dirname, '../renderer/index.html'))
+  }
+
+  return win
+}
+
+app.whenReady().then(() => {
+  registerIpcHandlers()
+  createWindow()
+
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow()
+    }
+  })
+})
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') {
+    app.quit()
+  }
+})

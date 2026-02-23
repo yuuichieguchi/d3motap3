@@ -1,0 +1,22 @@
+export const IPC_CHANNELS = {
+  RECORDING_START: 'recording:start',
+  RECORDING_STOP: 'recording:stop',
+  RECORDING_PAUSE: 'recording:pause',
+  RECORDING_RESUME: 'recording:resume',
+  RECORDING_STATUS: 'recording:status',
+  RECORDING_START_V2: 'recording:start-v2',
+  RECORDING_STOP_V2: 'recording:stop-v2',
+  RECORDING_ELAPSED_V2: 'recording:elapsed-v2',
+  RECORDING_IS_RECORDING_V2: 'recording:is-recording-v2',
+  SOURCES_LIST: 'sources:list',
+  SOURCES_ADD: 'sources:add',
+  SOURCES_REMOVE: 'sources:remove',
+  SOURCES_LIST_AVAILABLE_WINDOWS: 'sources:list-available-windows',
+  SOURCES_LIST_AVAILABLE_WEBCAMS: 'sources:list-available-webcams',
+  LAYOUT_SET: 'layout:set',
+  PREVIEW_FRAME: 'preview:frame',
+  NATIVE_HELLO: 'native:hello',
+  NATIVE_ADD: 'native:add',
+} as const
+
+export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]
