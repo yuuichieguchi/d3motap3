@@ -25,6 +25,7 @@ export const IPC_CHANNELS = {
   SCRIPT_RUN: 'script:run',
   SCRIPT_CANCEL: 'script:cancel',
   SCRIPT_STATUS: 'script:status',
+  SCRIPT_SAVE_TEMP: 'script:save-temp',
   DIALOG_OPEN_FILE: 'dialog:open-file',
   AI_START_NARRATION: 'ai:start-narration',
   AI_START_SCRIPT_GEN: 'ai:start-script-gen',

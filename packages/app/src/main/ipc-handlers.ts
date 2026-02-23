@@ -138,6 +138,15 @@ export function registerIpcHandlers(): void {
     return nativeBridge.scriptStatus()
   })
 
+  ipcMain.handle('script:save-temp', async (_event, yamlContent: string) => {
+    const { writeFile } = await import('fs/promises')
+    const tmpDir = app.getPath('temp')
+    const timestamp = Date.now()
+    const tmpPath = join(tmpDir, `d3motap3-script-${timestamp}.yaml`)
+    await writeFile(tmpPath, yamlContent, 'utf-8')
+    return tmpPath
+  })
+
   // AI Integration
   ipcMain.handle('ai:start-narration', (_event, description: string, apiKey: string) => {
     return nativeBridge.aiStartNarration(description, apiKey)
