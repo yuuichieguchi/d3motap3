@@ -23,6 +23,24 @@ export function AiPanel() {
     await store.reset()
   }, [store])
 
+  const handleApplyCaption = useCallback(async () => {
+    if (status.status === 'completed') {
+      try {
+        await window.api.invoke('caption:set', status.result, 'bottom')
+      } catch (err) {
+        console.error('Failed to set caption:', err)
+      }
+    }
+  }, [status])
+
+  const handleClearCaption = useCallback(async () => {
+    try {
+      await window.api.invoke('caption:clear')
+    } catch (err) {
+      console.error('Failed to clear caption:', err)
+    }
+  }, [])
+
   return (
     <div className="ai-section">
       <h3>AI Assistant</h3>
@@ -112,6 +130,16 @@ export function AiPanel() {
             </button>
           </div>
           <pre className="ai-result">{status.result}</pre>
+          {store.activeTab === 'narration' && (
+            <div className="caption-controls">
+              <button className="caption-btn apply" onClick={handleApplyCaption}>
+                Apply as Caption
+              </button>
+              <button className="caption-btn clear" onClick={handleClearCaption}>
+                Clear Caption
+              </button>
+            </div>
+          )}
         </div>
       )}
 

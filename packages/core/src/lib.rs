@@ -532,3 +532,32 @@ pub fn ai_reset() -> napi::Result<()> {
     ai::reset_ai_status()
         .map_err(|e| napi::Error::from_reason(e))
 }
+
+// -------------------------------------------------------------------------
+// Caption Overlay
+// -------------------------------------------------------------------------
+
+#[napi]
+pub fn set_caption(text: String, position: String) -> napi::Result<()> {
+    let pos = match position.as_str() {
+        "top" => script::types::CaptionPosition::Top,
+        "center" => script::types::CaptionPosition::Center,
+        _ => script::types::CaptionPosition::Bottom,
+    };
+    let mut guard = recording::ACTIVE_CAPTION.lock()
+        .map_err(|e| napi::Error::from_reason(format!("Caption lock error: {}", e)))?;
+    *guard = Some(recording::ActiveCaption {
+        text,
+        position: pos,
+        font_size: 48.0,
+    });
+    Ok(())
+}
+
+#[napi]
+pub fn clear_caption() -> napi::Result<()> {
+    let mut guard = recording::ACTIVE_CAPTION.lock()
+        .map_err(|e| napi::Error::from_reason(format!("Caption lock error: {}", e)))?;
+    *guard = None;
+    Ok(())
+}

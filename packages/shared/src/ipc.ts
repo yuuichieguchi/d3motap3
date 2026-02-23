@@ -31,6 +31,8 @@ export const IPC_CHANNELS = {
   AI_STATUS: 'ai:status',
   AI_CANCEL: 'ai:cancel',
   AI_RESET: 'ai:reset',
+  CAPTION_SET: 'caption:set',
+  CAPTION_CLEAR: 'caption:clear',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

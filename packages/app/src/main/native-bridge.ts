@@ -32,6 +32,8 @@ import {
   aiStatus,
   aiCancel,
   aiReset,
+  setCaption,
+  clearCaption,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -200,5 +202,13 @@ export const nativeBridge = {
   },
   aiReset(): void {
     aiReset()
+  },
+
+  // Caption overlay
+  setCaption(text: string, position: string): void {
+    setCaption(text, position)
+  },
+  clearCaption(): void {
+    clearCaption()
   },
 }

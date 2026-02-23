@@ -159,6 +159,15 @@ export function registerIpcHandlers(): void {
     return nativeBridge.aiReset()
   })
 
+  // Caption overlay
+  ipcMain.handle('caption:set', (_event, text: string, position: string) => {
+    return nativeBridge.setCaption(text, position)
+  })
+
+  ipcMain.handle('caption:clear', () => {
+    return nativeBridge.clearCaption()
+  })
+
   // Dialog
   ipcMain.handle('dialog:open-file', async (_event, options: { filters?: Array<{ name: string; extensions: string[] }> }) => {
     const result = await dialog.showOpenDialog({
