@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { hello, add, listDisplays, startCapture, stopCapture, getLatestFrame, getFrameCount, isCapturing, ffmpegVersion, isFfmpegAvailable, startRecording, stopRecording, getRecordingElapsedMs, isRecording, addSource, removeSource, listSources, listWindows, listWebcams, setLayout, getPreviewFrame, startRecordingV2, stopRecordingV2, getRecordingV2ElapsedMs, isRecordingV2, listAndroidDevices, isAdbAvailable, listIosDevices, terminalWriteInput, terminalResize, scriptRun, scriptCancel, scriptStatus, aiStartNarration, aiStartScriptGen, aiStatus, aiCancel, aiReset } = nativeBinding
+const { hello, add, listDisplays, startCapture, stopCapture, getLatestFrame, getFrameCount, isCapturing, ffmpegVersion, isFfmpegAvailable, startRecording, stopRecording, getRecordingElapsedMs, isRecording, addSource, removeSource, listSources, listWindows, listWebcams, setLayout, getPreviewFrame, startRecordingV2, stopRecordingV2, getRecordingV2ElapsedMs, isRecordingV2, listAndroidDevices, isAdbAvailable, listIosDevices, terminalWriteInput, terminalResize, scriptRun, scriptCancel, scriptStatus, aiStartNarration, aiStartScriptGen, aiStatus, aiCancel, aiReset, setCaption, clearCaption, editorProbe, editorThumbnails, editorExport, editorExportStatus } = nativeBinding
 
 module.exports.hello = hello
 module.exports.add = add
@@ -350,3 +350,9 @@ module.exports.aiStartScriptGen = aiStartScriptGen
 module.exports.aiStatus = aiStatus
 module.exports.aiCancel = aiCancel
 module.exports.aiReset = aiReset
+module.exports.setCaption = setCaption
+module.exports.clearCaption = clearCaption
+module.exports.editorProbe = editorProbe
+module.exports.editorThumbnails = editorThumbnails
+module.exports.editorExport = editorExport
+module.exports.editorExportStatus = editorExportStatus

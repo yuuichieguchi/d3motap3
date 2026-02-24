@@ -84,3 +84,16 @@ export declare function aiStartScriptGen(description: string, apiKey: string): v
 export declare function aiStatus(): string
 export declare function aiCancel(): void
 export declare function aiReset(): void
+export declare function setCaption(text: string, position: string): void
+export declare function clearCaption(): void
+export interface VideoMetadataJs {
+  durationMs: number
+  width: number
+  height: number
+  fps: number
+  codec: string
+}
+export declare function editorProbe(path: string): VideoMetadataJs
+export declare function editorThumbnails(path: string, count: number, width: number): Array<Buffer>
+export declare function editorExport(projectJson: string, outputPath: string): void
+export declare function editorExportStatus(): string
