@@ -633,6 +633,34 @@ body {
   background-color: rgba(220, 53, 69, 0.1);
 }
 
+.source-drag-handle {
+  cursor: grab;
+  color: var(--text-secondary);
+  font-size: 14px;
+  padding: 0 4px;
+  flex-shrink: 0;
+  user-select: none;
+  -webkit-user-drag: element;
+  line-height: 1;
+}
+
+.source-drag-handle:hover {
+  color: var(--text-primary);
+}
+
+.source-drag-handle:active {
+  cursor: grabbing;
+}
+
+.source-item--dragging {
+  opacity: 0.5;
+}
+
+.source-item--drag-over {
+  border-color: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
 /* Heavy Glass: dialog-overlay */
 .dialog-overlay {
   position: fixed;

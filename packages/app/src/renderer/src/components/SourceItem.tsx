@@ -8,6 +8,15 @@ interface SourceItemProps {
   height: number
   isActive: boolean
   sourceType?: string
+  index: number
+  isDragging: boolean
+  isDragOver: boolean
+  showDragHandle: boolean
+  onDragStart: (e: React.DragEvent, index: number) => void
+  onDragOver: (e: React.DragEvent, index: number) => void
+  onDrop: (e: React.DragEvent, index: number) => void
+  onDragEnd: () => void
+  onDragLeave: (e: React.DragEvent) => void
 }
 
 /** Encode a string into a Uint8Array of UTF-8 bytes */
@@ -27,7 +36,7 @@ const SPECIAL_KEY_MAP: Record<string, string> = {
   ArrowLeft: '\x1b[D',
 }
 
-export function SourceItem({ id, name, width, height, isActive, sourceType }: SourceItemProps) {
+export function SourceItem({ id, name, width, height, isActive, sourceType, index, isDragging, isDragOver, showDragHandle, onDragStart, onDragOver, onDrop, onDragEnd, onDragLeave }: SourceItemProps) {
   const removeSource = useSourcesStore((s) => s.removeSource)
   const isTerminal = sourceType === 'terminal' || name.toLowerCase().includes('terminal')
   const [terminalFocused, setTerminalFocused] = useState(false)
@@ -51,7 +60,22 @@ export function SourceItem({ id, name, width, height, isActive, sourceType }: So
   )
 
   return (
-    <div className="source-item">
+    <div
+      className={`source-item${isDragging ? ' source-item--dragging' : ''}${isDragOver ? ' source-item--drag-over' : ''}`}
+      onDragOver={(e) => onDragOver(e, index)}
+      onDrop={(e) => onDrop(e, index)}
+      onDragLeave={onDragLeave}
+    >
+      {showDragHandle && (
+        <span
+          className="source-drag-handle"
+          draggable
+          onDragStart={(e) => onDragStart(e, index)}
+          onDragEnd={onDragEnd}
+        >
+          ⠿
+        </span>
+      )}
       <div className="source-info">
         <span className={`source-status ${isActive ? 'active' : 'inactive'}`} />
         <span className="source-name">{name}</span>

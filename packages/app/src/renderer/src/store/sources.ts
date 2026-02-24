@@ -55,9 +55,10 @@ interface SourcesState {
   refreshAvailableAndroid: () => Promise<void>
   refreshAvailableIos: () => Promise<void>
   checkAdbAvailable: () => Promise<void>
+  reorderSources: (fromIndex: number, toIndex: number) => void
 }
 
-export const useSourcesStore = create<SourcesState>((set) => ({
+export const useSourcesStore = create<SourcesState>((set, get) => ({
   activeSources: [],
   availableWindows: [],
   availableWebcams: [],
@@ -70,6 +71,14 @@ export const useSourcesStore = create<SourcesState>((set) => ({
   setAvailableWindows: (availableWindows) => set({ availableWindows }),
   setAvailableWebcams: (availableWebcams) => set({ availableWebcams }),
   setError: (error) => set({ error }),
+
+  reorderSources: (fromIndex, toIndex) => {
+    if (fromIndex === toIndex) return
+    const sources = [...get().activeSources]
+    const [moved] = sources.splice(fromIndex, 1)
+    sources.splice(toIndex, 0, moved)
+    set({ activeSources: sources })
+  },
 
   addSource: async (sourceType, config) => {
     try {
