@@ -1,11 +1,13 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRecordingStore } from './store/recording'
 import { useSourcesStore } from './store/sources'
+import { useEditorStore } from './store/editor'
 import { SourcePanel } from './components/SourcePanel'
 import { LayoutSelector } from './components/LayoutSelector'
 import { ScriptPanel } from './components/ScriptPanel'
 import { AiPanel } from './components/AiPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
+import { EditorView } from './components/EditorView'
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -17,6 +19,8 @@ function formatTime(ms: number): string {
 export function App() {
   const store = useRecordingStore()
   const sourcesStore = useSourcesStore()
+  const editorStore = useEditorStore()
+  const [currentView, setCurrentView] = useState<'recording' | 'editor'>('recording')
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load displays and check FFmpeg on mount
@@ -106,8 +110,18 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>d3motap3</h1>
-        <span className={`status-badge ${store.status}`}>{store.status}</span>
+        <button className="nav-btn" onClick={() => setCurrentView(currentView === 'recording' ? 'editor' : 'recording')}>
+          {currentView === 'recording' ? 'Editor' : 'Recording'}
+        </button>
+        {currentView === 'recording' && (
+          <span className={`status-badge ${store.status}`}>{store.status}</span>
+        )}
       </header>
+
+      {currentView === 'editor' ? (
+        <EditorView onBack={() => setCurrentView('recording')} />
+      ) : (
+      <>
       <main className="app-main">
         {/* Left sidebar: Sources + Layout + Recording controls */}
         <div className="sidebar">
@@ -211,6 +225,17 @@ export function App() {
                 <p className="result-details">
                   {store.lastResult.frameCount} frames | {formatTime(store.lastResult.durationMs)} | {store.lastResult.format.toUpperCase()}
                 </p>
+                <button
+                  className="edit-btn"
+                  onClick={async () => {
+                    if (store.lastResult) {
+                      await editorStore.addClip(store.lastResult.outputPath)
+                      setCurrentView('editor')
+                    }
+                  }}
+                >
+                  Edit
+                </button>
               </div>
             )}
           </div>
@@ -234,6 +259,8 @@ export function App() {
           {store.outputPath && ` | Output: ${store.outputPath}`}
         </p>
       </footer>
+      </>
+      )}
     </div>
   )
 }
