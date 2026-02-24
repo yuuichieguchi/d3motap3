@@ -1,19 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 
-interface DisplayBounds {
-  x: number
-  y: number
-  width: number
-  height: number
-}
-
 interface SelectionState {
   startX: number
   startY: number
   endX: number
   endY: number
   isDragging: boolean
-  hasSelection: boolean
 }
 
 function normalizeRect(sel: SelectionState): { x: number; y: number; width: number; height: number } {
@@ -31,25 +23,8 @@ export function RegionSelectorOverlay() {
     endX: 0,
     endY: 0,
     isDragging: false,
-    hasSelection: false,
   })
-  const displayRef = useRef<DisplayBounds | null>(null)
-
-  useEffect(() => {
-    if (!window.api?.on) return
-    const unsubscribe = window.api.on('region:display-info', (...args: unknown[]) => {
-      const bounds = args[0] as DisplayBounds
-      displayRef.current = bounds
-    })
-    return unsubscribe
-  }, [])
-
-  const confirmSelection = useCallback(() => {
-    if (!selection.hasSelection) return
-    const rect = normalizeRect(selection)
-    if (rect.width < 2 || rect.height < 2) return
-    window.api?.invoke('region:confirm', rect)
-  }, [selection])
+  const dragStartRef = useRef({ x: 0, y: 0 })
 
   const cancelSelection = useCallback(() => {
     window.api?.invoke('region:cancel')
@@ -59,13 +34,11 @@ export function RegionSelectorOverlay() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         cancelSelection()
-      } else if (e.key === 'Enter') {
-        confirmSelection()
       }
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [confirmSelection, cancelSelection])
+  }, [cancelSelection])
 
   const handleMouseDown = (e: React.MouseEvent) => {
     if (e.button === 2) {
@@ -79,8 +52,8 @@ export function RegionSelectorOverlay() {
       endX: e.clientX,
       endY: e.clientY,
       isDragging: true,
-      hasSelection: false,
     })
+    dragStartRef.current = { x: e.clientX, y: e.clientY }
   }
 
   const handleMouseMove = (e: React.MouseEvent) => {
@@ -95,25 +68,20 @@ export function RegionSelectorOverlay() {
   const handleMouseUp = (e: React.MouseEvent) => {
     if (!selection.isDragging) return
     if (e.button !== 0) return
+    const startX = dragStartRef.current.x
+    const startY = dragStartRef.current.y
     const endX = e.clientX
     const endY = e.clientY
-    const width = Math.abs(endX - selection.startX)
-    const height = Math.abs(endY - selection.startY)
+    const width = Math.abs(endX - startX)
+    const height = Math.abs(endY - startY)
     if (width < 2 || height < 2) {
-      setSelection((prev) => ({ ...prev, isDragging: false, hasSelection: false }))
+      setSelection((prev) => ({ ...prev, isDragging: false }))
       return
     }
-    setSelection((prev) => ({
-      ...prev,
-      endX,
-      endY,
-      isDragging: false,
-      hasSelection: true,
-    }))
-  }
-
-  const handleDoubleClick = () => {
-    confirmSelection()
+    const x = Math.min(startX, endX)
+    const y = Math.min(startY, endY)
+    setSelection((prev) => ({ ...prev, isDragging: false }))
+    window.api?.invoke('region:confirm', { x, y, width, height })
   }
 
   const handleContextMenu = (e: React.MouseEvent) => {
@@ -122,7 +90,7 @@ export function RegionSelectorOverlay() {
   }
 
   const rect = normalizeRect(selection)
-  const showSelection = selection.isDragging || selection.hasSelection
+  const showSelection = selection.isDragging
 
   const clipPath = showSelection
     ? `polygon(
@@ -151,7 +119,6 @@ export function RegionSelectorOverlay() {
       onMouseDown={handleMouseDown}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
-      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
     >
       {/* Dark overlay with clip-path cutout */}
@@ -181,7 +148,7 @@ export function RegionSelectorOverlay() {
           whiteSpace: 'nowrap',
         }}
       >
-        Drag to select region. Enter to confirm, Esc to cancel.
+        Drag to select region. Esc to cancel.
       </div>
 
       {/* Selection border */}
