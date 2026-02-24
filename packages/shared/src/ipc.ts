@@ -34,6 +34,11 @@ export const IPC_CHANNELS = {
   AI_RESET: 'ai:reset',
   CAPTION_SET: 'caption:set',
   CAPTION_CLEAR: 'caption:clear',
+  EDITOR_PROBE: 'editor:probe',
+  EDITOR_THUMBNAILS: 'editor:thumbnails',
+  EDITOR_EXPORT: 'editor:export',
+  EDITOR_EXPORT_STATUS: 'editor:export-status',
+  EDITOR_IMPORT: 'editor:import',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

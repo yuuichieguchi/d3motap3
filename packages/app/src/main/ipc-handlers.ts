@@ -177,6 +177,34 @@ export function registerIpcHandlers(): void {
     return nativeBridge.clearCaption()
   })
 
+  // Video Editor
+  ipcMain.handle('editor:probe', (_event, path: string) => {
+    return nativeBridge.editorProbe(path)
+  })
+
+  ipcMain.handle('editor:thumbnails', (_event, path: string, count: number, width: number) => {
+    return nativeBridge.editorThumbnails(path, count, width)
+  })
+
+  ipcMain.handle('editor:export', (_event, projectJson: string, outputPath: string) => {
+    return nativeBridge.editorExport(projectJson, outputPath)
+  })
+
+  ipcMain.handle('editor:export-status', () => {
+    return nativeBridge.editorExportStatus()
+  })
+
+  ipcMain.handle('editor:import', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] }],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
+  })
+
   // Dialog
   ipcMain.handle('dialog:open-file', async (_event, options: { filters?: Array<{ name: string; extensions: string[] }> }) => {
     const result = await dialog.showOpenDialog({

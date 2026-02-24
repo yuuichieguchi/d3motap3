@@ -34,6 +34,10 @@ import {
   aiReset,
   setCaption,
   clearCaption,
+  editorProbe,
+  editorThumbnails,
+  editorExport,
+  editorExportStatus,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -43,6 +47,7 @@ import type {
   WebcamInfoJs,
   AdbDeviceJs,
   IosDeviceJs,
+  VideoMetadataJs,
 } from '@d3motap3/core'
 import { app } from 'electron'
 import { join } from 'path'
@@ -210,5 +215,19 @@ export const nativeBridge = {
   },
   clearCaption(): void {
     clearCaption()
+  },
+
+  // Video Editor
+  editorProbe(path: string): VideoMetadataJs {
+    return editorProbe(path)
+  },
+  editorThumbnails(path: string, count: number, width: number): Buffer[] {
+    return editorThumbnails(path, count, width)
+  },
+  editorExport(projectJson: string, outputPath: string): void {
+    editorExport(projectJson, outputPath)
+  },
+  editorExportStatus(): string {
+    return editorExportStatus()
   },
 }
