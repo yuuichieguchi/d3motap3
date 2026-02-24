@@ -147,9 +147,21 @@ impl Compositor {
                 }
                 // PiP overlay
                 if let Some(frame) = frames.get(pip) {
+                    if frame.width == 0 || frame.height == 0 {
+                        return &self.output_buffer;
+                    }
                     let scale = pip_scale.clamp(0.1, 0.5);
-                    let pip_w = ((self.output_width as f32) * scale) as usize;
-                    let pip_h = ((self.output_height as f32) * scale) as usize;
+                    let max_pip_w = (self.output_width as f32) * scale;
+                    let max_pip_h = (self.output_height as f32) * scale;
+                    let src_aspect = frame.width as f32 / frame.height as f32;
+                    let box_aspect = max_pip_w / max_pip_h;
+                    let (pip_w, pip_h) = if src_aspect > box_aspect {
+                        // Source is wider than box -> fit to width
+                        (max_pip_w as usize, (max_pip_w / src_aspect) as usize)
+                    } else {
+                        // Source is taller than box -> fit to height
+                        ((max_pip_h * src_aspect) as usize, max_pip_h as usize)
+                    };
                     let margin = 16usize;
 
                     let (px, py) = match pip_position {
@@ -641,6 +653,78 @@ mod tests {
         }
     }
 
+    // ==================== PiP Aspect Ratio ====================
+
+    #[test]
+    fn test_pip_preserves_source_aspect_ratio() {
+        // Output is 16:9 (960x540), PiP source is 4:3 (640x480).
+        // The PiP overlay should preserve the source's 4:3 aspect ratio,
+        // NOT stretch it to 16:9.
+        let mut comp = Compositor::new(960, 540);
+
+        // Primary: solid red (BGRA)
+        let primary_frame = make_solid_frame(960, 540, 0, 0, 255, 255);
+        // PiP source: solid green (BGRA), 4:3 aspect ratio
+        let pip_frame = make_solid_frame(640, 480, 0, 255, 0, 255);
+
+        let mut frames: HashMap<u32, Arc<CapturedFrame>> = HashMap::new();
+        frames.insert(1, primary_frame);
+        frames.insert(2, pip_frame);
+
+        let layout = Layout::Pip {
+            primary: 1,
+            pip: 2,
+            pip_position: PipPosition::BottomRight,
+            pip_scale: 0.25,
+        };
+        let output = comp.compose(&layout, &frames);
+
+        // OLD (buggy) code produced:
+        //   pip_w = 960 * 0.25 = 240,  pip_h = 540 * 0.25 = 135
+        //   PiP region: x=[704, 944), y=[389, 524)
+        //   => pixel (720, 420) was INSIDE the PiP => green (wrong)
+        //
+        // FIXED code (aspect-ratio preserved):
+        //   max box = 240x135, source aspect = 4/3 ≈ 1.333 < box aspect 1.778
+        //   => fit by height: pip_w = 135*(4/3) = 180, pip_h = 135
+        //   PiP region: x=[764, 944), y=[389, 524)
+        //   => pixel (720, 420) is OUTSIDE the PiP => red (primary)
+
+        let probe_x: usize = 720;
+        let probe_y: usize = 420;
+        let off = (probe_y * 960 + probe_x) * 4;
+
+        // This pixel should be red (primary background), NOT green (PiP).
+        // If the PiP is incorrectly stretched to 16:9, this pixel will be green.
+        assert_eq!(
+            output[off + 1], 0,
+            "pixel ({},{}) G channel should be 0 (red primary), got {} — PiP is stretched to output aspect ratio",
+            probe_x, probe_y, output[off + 1]
+        );
+        assert_eq!(
+            output[off + 2], 255,
+            "pixel ({},{}) R channel should be 255 (red primary), got {}",
+            probe_x, probe_y, output[off + 2]
+        );
+
+        // Also verify the CENTER of the correctly-sized PiP is green.
+        // Correct PiP center: x = 764 + 180/2 = 854, y = 389 + 135/2 = 456
+        // This pixel is inside the PiP in BOTH buggy and correct code.
+        let center_x: usize = 854;
+        let center_y: usize = 456;
+        let center_off = (center_y * 960 + center_x) * 4;
+        assert_eq!(
+            output[center_off + 1], 255,
+            "pixel ({},{}) G channel should be 255 (PiP green), got {}",
+            center_x, center_y, output[center_off + 1]
+        );
+        assert_eq!(
+            output[center_off + 2], 0,
+            "pixel ({},{}) R channel should be 0 (PiP green), got {}",
+            center_x, center_y, output[center_off + 2]
+        );
+    }
+
     #[test]
     fn test_compose_zoomed_layout() {
         let mut comp = Compositor::new(100, 100);
@@ -692,5 +776,89 @@ mod tests {
         let center = (50 * 100 + 50) * 4;
         assert_eq!(output[center + 2], 255, "center R should be 255 (red)");
         assert_eq!(output[center], 0, "center B should be 0");
+    }
+
+    // ==================== PiP Aspect Ratio: Wide Source ====================
+
+    #[test]
+    fn test_pip_preserves_wide_source_aspect_ratio() {
+        // Ultra-wide source (21:9 ≈ 2.333) in a 4:3 output (≈ 1.333)
+        // This tests the src_aspect > box_aspect branch (fit to width).
+        let mut comp = Compositor::new(640, 480);
+        let primary = make_solid_frame(640, 480, 0, 0, 255, 255); // red
+        let pip_src = make_solid_frame(2520, 1080, 0, 255, 0, 255); // green, 21:9
+        let mut frames = HashMap::new();
+        frames.insert(1u32, primary);
+        frames.insert(2u32, pip_src);
+
+        let layout = Layout::Pip {
+            primary: 1,
+            pip: 2,
+            pip_position: PipPosition::BottomRight,
+            pip_scale: 0.25,
+        };
+        let output = comp.compose(&layout, &frames);
+
+        // max box: 640*0.25=160, 480*0.25=120
+        // src_aspect = 2520/1080 = 2.333, box_aspect = 160/120 = 1.333
+        // src_aspect > box_aspect => fit to width: pip_w=160, pip_h=160/2.333=68
+        // Position (BottomRight, margin=16): x=640-160-16=464, y=480-68-16=396
+        let pip_w = 160;
+        let pip_h = 68;
+        let margin = 16;
+        let px = 640 - pip_w - margin; // 464
+        let py = 480 - pip_h - margin; // 396
+
+        // Center of the PiP should be green
+        let cx = px + pip_w / 2; // 544
+        let cy = py + pip_h / 2; // 430
+        let off = (cy * 640 + cx) * 4;
+        assert_eq!(output[off + 1], 255, "PiP center G should be 255");
+        assert_eq!(output[off + 2], 0, "PiP center R should be 0");
+
+        // Pixel below the PiP but inside where a stretched version would be
+        // If buggy (120 tall), y would extend to 396+120=516, but correct is 396+68=464
+        // Probe at y=470 (inside buggy region, outside correct region)
+        let probe_y = 470;
+        let probe_off = (probe_y * 640 + cx) * 4;
+        assert_eq!(
+            output[probe_off + 1], 0,
+            "pixel below PiP G should be 0 (primary red)"
+        );
+        assert_eq!(
+            output[probe_off + 2], 255,
+            "pixel below PiP R should be 255 (primary red)"
+        );
+    }
+
+    // ==================== PiP Zero-Dimension Frame ====================
+
+    #[test]
+    fn test_pip_zero_dimension_frame_no_panic() {
+        let mut comp = Compositor::new(200, 200);
+        let primary = make_solid_frame(200, 200, 0, 0, 255, 255); // red
+        // Zero-height frame
+        let zero_frame = Arc::new(CapturedFrame {
+            data: vec![],
+            width: 100,
+            height: 0,
+            bytes_per_row: 400,
+            timestamp_ms: 0.0,
+        });
+        let mut frames = HashMap::new();
+        frames.insert(1u32, primary);
+        frames.insert(2u32, zero_frame);
+
+        let layout = Layout::Pip {
+            primary: 1,
+            pip: 2,
+            pip_position: PipPosition::BottomRight,
+            pip_scale: 0.25,
+        };
+        // Should not panic; primary should still be visible
+        let output = comp.compose(&layout, &frames);
+        // Top-left should be red (primary rendered successfully)
+        assert_eq!(output[2], 255, "primary R");
+        assert_eq!(output[1], 0, "primary G");
     }
 }
