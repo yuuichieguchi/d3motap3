@@ -302,58 +302,79 @@ test.describe('Source Type Selection', () => {
         await page.locator(S.appHeader).waitFor({ state: 'visible', timeout: 30000 })
       })
 
-      test('region inputs visible with default values', async ({ page }) => {
+      test('region UI has select region button and advanced toggle', async ({ page }) => {
         await page.locator(S.addSourceBtn).click()
 
         const select = page.locator(`${S.dialog} select`).first()
         await select.selectOption('Region')
 
-        // Display select inside the source-list area
+        // Display select visible
         const regionControls = page.locator(`${S.dialog} ${S.sourceList} ${S.controlGroup}`)
-        await expect(regionControls).toHaveCount(5)
-
-        // Display select
+        await expect(regionControls).toHaveCount(1)
         const displaySelect = regionControls.nth(0).locator('select')
         await expect(displaySelect).toBeVisible()
 
-        // X input
-        const xInput = regionControls.nth(1).locator('input[type="number"]')
+        // "Select Region..." button visible
+        const selectRegionBtn = page.locator(S.sourceOptionBtn, { hasText: 'Select Region' })
+        await expect(selectRegionBtn).toBeVisible()
+
+        // "Add Region" button visible
+        const addRegionBtn = page.locator(S.sourceOptionBtn, { hasText: 'Add Region' })
+        await expect(addRegionBtn).toBeVisible()
+
+        // Click "Advanced" toggle to reveal manual inputs
+        const advancedBtn = page.locator('button', { hasText: 'Advanced' })
+        await advancedBtn.click()
+
+        // Now X/Y/Width/Height inputs should be visible
+        const xInput = page.locator(`${S.dialog} input[type="number"]`).nth(0)
         await expect(xInput).toBeVisible()
         await expect(xInput).toHaveValue('0')
 
-        // Y input
-        const yInput = regionControls.nth(2).locator('input[type="number"]')
+        const yInput = page.locator(`${S.dialog} input[type="number"]`).nth(1)
         await expect(yInput).toBeVisible()
         await expect(yInput).toHaveValue('0')
 
-        // Width input
-        const wInput = regionControls.nth(3).locator('input[type="number"]')
+        const wInput = page.locator(`${S.dialog} input[type="number"]`).nth(2)
         await expect(wInput).toBeVisible()
         await expect(wInput).toHaveValue('800')
 
-        // Height input
-        const hInput = regionControls.nth(4).locator('input[type="number"]')
+        const hInput = page.locator(`${S.dialog} input[type="number"]`).nth(3)
         await expect(hInput).toBeVisible()
         await expect(hInput).toHaveValue('600')
 
         await page.locator(S.dialogCloseBtn).click()
+        await expect(page.locator(S.dialogOverlay)).toBeHidden()
       })
 
-      test('change dimensions and add region closes dialog', async ({ page }) => {
+      test('change dimensions via advanced input and add region closes dialog', async ({ page }) => {
         await page.locator(S.addSourceBtn).click()
+        await expect(page.locator(S.dialog)).toBeVisible()
 
         const select = page.locator(`${S.dialog} select`).first()
         await select.selectOption('Region')
 
-        const regionControls = page.locator(`${S.dialog} ${S.sourceList} ${S.controlGroup}`)
+        // Ensure Advanced section is open (toggle if needed)
+        const advancedBtn = page.locator('button', { hasText: 'Advanced' })
+        await expect(advancedBtn).toBeVisible()
+        const numberInputs = page.locator(`${S.dialog} input[type="number"]`)
+        const inputCount = await numberInputs.count()
+        if (inputCount < 4) {
+          // Advanced is closed, click to open
+          await advancedBtn.click()
+        }
+        // Wait for all 4 inputs (X, Y, Width, Height) to be present
+        await expect(numberInputs).toHaveCount(4)
 
-        // Change Width to 1024
-        const wInput = regionControls.nth(3).locator('input[type="number"]')
+        // Change Width (nth(2)) to 1024
+        const wInput = numberInputs.nth(2)
+        await expect(wInput).toBeVisible()
         await wInput.fill('1024')
         await expect(wInput).toHaveValue('1024')
 
-        // Change Height to 768
-        const hInput = regionControls.nth(4).locator('input[type="number"]')
+        // Change Height (nth(3)) to 768
+        const hInput = numberInputs.nth(3)
+        await expect(hInput).toBeVisible()
         await hInput.fill('768')
         await expect(hInput).toHaveValue('768')
 

@@ -216,4 +216,39 @@ export function registerIpcHandlers(): void {
     }
     return result.filePaths[0]
   })
+
+  // Region Selector
+  ipcMain.handle('region:open-selector', (_event, displayIndex: number) => {
+    const { openRegionSelector } = require('./index') as typeof import('./index')
+    openRegionSelector(displayIndex)
+  })
+
+  ipcMain.handle('region:confirm', (_event, rect: { x: number; y: number; width: number; height: number }) => {
+    // Validate rect values
+    if (!rect || typeof rect.x !== 'number' || typeof rect.y !== 'number' ||
+        typeof rect.width !== 'number' || typeof rect.height !== 'number' ||
+        !Number.isFinite(rect.x) || !Number.isFinite(rect.y) ||
+        !Number.isFinite(rect.width) || !Number.isFinite(rect.height) ||
+        rect.width <= 0 || rect.height <= 0) {
+      const { closeRegionSelector } = require('./index') as typeof import('./index')
+      closeRegionSelector()
+      return
+    }
+    const { getMainWindow, closeRegionSelector } = require('./index') as typeof import('./index')
+    const mainWin = getMainWindow()
+    if (mainWin) {
+      mainWin.webContents.send('region:selected', {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      })
+    }
+    closeRegionSelector()
+  })
+
+  ipcMain.handle('region:cancel', () => {
+    const { closeRegionSelector } = require('./index') as typeof import('./index')
+    closeRegionSelector()
+  })
 }
