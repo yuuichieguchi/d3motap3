@@ -1433,7 +1433,17 @@ body {
   background: var(--accent);
   z-index: 5;
   box-shadow: 0 0 8px rgba(0, 122, 255, 0.5);
-  pointer-events: none;
+  cursor: col-resize;
+}
+
+.timeline-playhead::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -5px;
+  width: 12px;
+  cursor: col-resize;
 }
 
 .timeline-clip-wrapper {
@@ -1535,6 +1545,45 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Context menu */
+.timeline-context-menu {
+  position: fixed;
+  /* z-index: 50 — above playhead (5) and transition-indicator (2), below dialog-overlay (100) */
+  z-index: 50;
+  min-width: 120px;
+  padding: 4px;
+  background: rgba(255, 255, 255, 0.75);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  animation: context-menu-enter 0.1s ease-out;
+}
+
+.timeline-context-menu-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  color: #dc3545;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s;
+}
+
+.timeline-context-menu-item:hover {
+  background: rgba(220, 53, 69, 0.1);
+}
+
+@keyframes context-menu-enter {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
 }
 
 /* =============================================
