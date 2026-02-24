@@ -115,7 +115,6 @@ export function EditorView() {
     <div className="editor-view">
       {/* Header */}
       <div className="editor-header">
-        <h2>Editor</h2>
         <button
           className="editor-export-btn"
           onClick={handleExport}

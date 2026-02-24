@@ -833,6 +833,10 @@ body {
   margin-bottom: 8px;
 }
 
+.script-section .control-group button {
+  width: 100%;
+}
+
 /* AI tabs */
 .ai-tabs {
   display: flex;
@@ -1052,42 +1056,38 @@ body {
 }
 
 /* =============================================
-   Navigation (App.tsx)
+   Header Tabs (App.tsx)
    ============================================= */
 
-.nav-btn {
+.header-tabs {
+  display: flex;
+  gap: 2px;
+  background: rgba(0, 0, 0, 0.15);
+  border-radius: var(--radius-sm);
+  padding: 2px;
   -webkit-app-region: no-drag;
-  padding: 4px 10px;
-  font-size: 12px;
-  background-color: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-weight: 600;
-  transition: var(--transition-glass);
 }
 
-.nav-btn:hover {
-  background-color: var(--accent-hover);
-  box-shadow: var(--accent-glow);
-}
-
-.edit-btn {
-  margin-top: 8px;
-  padding: 6px 12px;
-  background-color: var(--accent);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
+.header-tab {
+  padding: 4px 14px;
   font-size: 12px;
   font-weight: 600;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 2px);
   cursor: pointer;
   transition: var(--transition-glass);
+  background: transparent;
+  color: var(--text-secondary);
 }
 
-.edit-btn:hover {
-  background-color: var(--accent-hover);
+.header-tab:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.header-tab.active {
+  background: var(--accent);
+  color: white;
   box-shadow: var(--accent-glow);
 }
 

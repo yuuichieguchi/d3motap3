@@ -99,6 +99,8 @@ export function App() {
       }
       store.setLastResult(result)
       store.setStatus('idle')
+      await editorStore.addClip(result.outputPath)
+      setCurrentView('editor')
     } catch (err) {
       store.setError(err instanceof Error ? err.message : String(err))
       store.setStatus('idle')
@@ -113,10 +115,21 @@ export function App() {
     <div className="app">
       <header className="app-header">
         <h1>d3motap3</h1>
-        <button className="nav-btn" onClick={() => setCurrentView(currentView === 'recording' ? 'editor' : 'recording')}>
-          {currentView === 'recording' ? 'Editor' : 'Recording'}
-        </button>
-        {currentView === 'recording' && (
+        <nav className="header-tabs">
+          <button
+            className={`header-tab ${currentView === 'recording' ? 'active' : ''}`}
+            onClick={() => setCurrentView('recording')}
+          >
+            Recording
+          </button>
+          <button
+            className={`header-tab ${currentView === 'editor' ? 'active' : ''}`}
+            onClick={() => setCurrentView('editor')}
+          >
+            Editor
+          </button>
+        </nav>
+        {currentView === 'recording' && store.status !== 'idle' && (
           <span className={`status-badge ${store.status}`}>{store.status}</span>
         )}
       </header>
@@ -248,17 +261,6 @@ export function App() {
                 <p className="result-details">
                   {store.lastResult.frameCount} frames | {formatTime(store.lastResult.durationMs)} | {store.lastResult.format.toUpperCase()}
                 </p>
-                <button
-                  className="edit-btn"
-                  onClick={async () => {
-                    if (store.lastResult) {
-                      await editorStore.addClip(store.lastResult.outputPath)
-                      setCurrentView('editor')
-                    }
-                  }}
-                >
-                  Edit
-                </button>
               </div>
             )}
           </div>
