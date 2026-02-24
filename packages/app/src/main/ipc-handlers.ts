@@ -138,6 +138,15 @@ export function registerIpcHandlers(): void {
     return nativeBridge.scriptStatus()
   })
 
+  ipcMain.handle('script:save-temp', async (_event, yamlContent: string) => {
+    const { writeFile } = await import('fs/promises')
+    const tmpDir = app.getPath('temp')
+    const timestamp = Date.now()
+    const tmpPath = join(tmpDir, `d3motap3-script-${timestamp}.yaml`)
+    await writeFile(tmpPath, yamlContent, 'utf-8')
+    return tmpPath
+  })
+
   // AI Integration
   ipcMain.handle('ai:start-narration', (_event, description: string, apiKey: string) => {
     return nativeBridge.aiStartNarration(description, apiKey)
@@ -157,6 +166,43 @@ export function registerIpcHandlers(): void {
 
   ipcMain.handle('ai:reset', () => {
     return nativeBridge.aiReset()
+  })
+
+  // Caption overlay
+  ipcMain.handle('caption:set', (_event, text: string, position: string) => {
+    return nativeBridge.setCaption(text, position)
+  })
+
+  ipcMain.handle('caption:clear', () => {
+    return nativeBridge.clearCaption()
+  })
+
+  // Video Editor
+  ipcMain.handle('editor:probe', (_event, path: string) => {
+    return nativeBridge.editorProbe(path)
+  })
+
+  ipcMain.handle('editor:thumbnails', (_event, path: string, count: number, width: number) => {
+    return nativeBridge.editorThumbnails(path, count, width)
+  })
+
+  ipcMain.handle('editor:export', (_event, projectJson: string, outputPath: string) => {
+    return nativeBridge.editorExport(projectJson, outputPath)
+  })
+
+  ipcMain.handle('editor:export-status', () => {
+    return nativeBridge.editorExportStatus()
+  })
+
+  ipcMain.handle('editor:import', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openFile'],
+      filters: [{ name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] }],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
   })
 
   // Dialog

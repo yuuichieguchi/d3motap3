@@ -1,8 +1,10 @@
 import { useCallback } from 'react'
 import { useAiStore } from '../store/ai'
+import { useScriptStore } from '../store/script'
 
 export function AiPanel() {
   const store = useAiStore()
+  const scriptStore = useScriptStore()
   const { status } = store
 
   const isProcessing = status.status === 'processing'
@@ -22,6 +24,35 @@ export function AiPanel() {
   const handleReset = useCallback(async () => {
     await store.reset()
   }, [store])
+
+  const handleApplyCaption = useCallback(async () => {
+    if (status.status === 'completed') {
+      try {
+        await window.api.invoke('caption:set', status.result, 'bottom')
+      } catch (err) {
+        console.error('Failed to set caption:', err)
+      }
+    }
+  }, [status])
+
+  const handleRunScript = useCallback(async () => {
+    if (status.status !== 'completed') return
+    try {
+      const tmpPath = await window.api.invoke('script:save-temp', status.result) as string
+      scriptStore.setYamlPath(tmpPath)
+      await scriptStore.run()
+    } catch (err) {
+      console.error('Failed to run script:', err)
+    }
+  }, [status, scriptStore])
+
+  const handleClearCaption = useCallback(async () => {
+    try {
+      await window.api.invoke('caption:clear')
+    } catch (err) {
+      console.error('Failed to clear caption:', err)
+    }
+  }, [])
 
   return (
     <div className="ai-section">
@@ -112,6 +143,23 @@ export function AiPanel() {
             </button>
           </div>
           <pre className="ai-result">{status.result}</pre>
+          {store.activeTab === 'narration' && (
+            <div className="caption-controls">
+              <button className="caption-btn apply" onClick={handleApplyCaption}>
+                Apply as Caption
+              </button>
+              <button className="caption-btn clear" onClick={handleClearCaption}>
+                Clear Caption
+              </button>
+            </div>
+          )}
+          {store.activeTab === 'script' && (
+            <div className="script-run-controls">
+              <button className="script-run-btn" onClick={handleRunScript}>
+                Run Script
+              </button>
+            </div>
+          )}
         </div>
       )}
 

@@ -1,10 +1,13 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRecordingStore } from './store/recording'
+import { useSourcesStore } from './store/sources'
+import { useEditorStore } from './store/editor'
 import { SourcePanel } from './components/SourcePanel'
 import { LayoutSelector } from './components/LayoutSelector'
 import { ScriptPanel } from './components/ScriptPanel'
 import { AiPanel } from './components/AiPanel'
 import { PreviewCanvas } from './components/PreviewCanvas'
+import { EditorView } from './components/EditorView'
 
 function formatTime(ms: number): string {
   const totalSeconds = Math.floor(ms / 1000)
@@ -15,6 +18,9 @@ function formatTime(ms: number): string {
 
 export function App() {
   const store = useRecordingStore()
+  const sourcesStore = useSourcesStore()
+  const editorStore = useEditorStore()
+  const [currentView, setCurrentView] = useState<'recording' | 'editor'>('recording')
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load displays and check FFmpeg on mount
@@ -40,7 +46,7 @@ export function App() {
     if (store.status === 'recording') {
       elapsedIntervalRef.current = setInterval(async () => {
         try {
-          const elapsed = await window.api.invoke('recording:elapsed') as number
+          const elapsed = await window.api.invoke('recording:elapsed-v2') as number
           store.setElapsedMs(elapsed)
         } catch {
           // ignore polling errors
@@ -62,16 +68,10 @@ export function App() {
   const handleStartRecording = useCallback(async () => {
     try {
       store.setError(null)
-      const display = store.displays[store.selectedDisplayIndex]
-      if (!display) {
-        store.setError('No display selected')
-        return
-      }
 
-      const outputPath = await window.api.invoke('recording:start', {
-        displayIndex: store.selectedDisplayIndex,
-        width: display.width,
-        height: display.height,
+      const outputPath = await window.api.invoke('recording:start-v2', {
+        outputWidth: store.outputWidth,
+        outputHeight: store.outputHeight,
         fps: store.fps,
         format: store.format,
         quality: store.quality,
@@ -88,7 +88,7 @@ export function App() {
   const handleStopRecording = useCallback(async () => {
     try {
       store.setStatus('processing')
-      const result = await window.api.invoke('recording:stop') as {
+      const result = await window.api.invoke('recording:stop-v2') as {
         outputPath: string
         frameCount: number
         durationMs: number
@@ -104,14 +104,24 @@ export function App() {
 
   const isRecording = store.status === 'recording'
   const isProcessing = store.status === 'processing'
-  const canRecord = store.ffmpegAvailable === true && store.displays.length > 0
+  const canRecord = store.ffmpegAvailable === true && sourcesStore.activeSources.length > 0
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>d3motap3</h1>
-        <span className={`status-badge ${store.status}`}>{store.status}</span>
+        <button className="nav-btn" onClick={() => setCurrentView(currentView === 'recording' ? 'editor' : 'recording')}>
+          {currentView === 'recording' ? 'Editor' : 'Recording'}
+        </button>
+        {currentView === 'recording' && (
+          <span className={`status-badge ${store.status}`}>{store.status}</span>
+        )}
       </header>
+
+      {currentView === 'editor' ? (
+        <EditorView onBack={() => setCurrentView('recording')} />
+      ) : (
+      <>
       <main className="app-main">
         {/* Left sidebar: Sources + Layout + Recording controls */}
         <div className="sidebar">
@@ -134,22 +144,20 @@ export function App() {
               <div className="error-box">{store.error}</div>
             )}
 
-            {/* Display selector */}
+            {/* Output Resolution */}
             <div className="control-group">
-              <label>Display</label>
+              <label>Output Resolution</label>
               <select
-                value={store.selectedDisplayIndex}
-                onChange={(e) => store.setSelectedDisplayIndex(Number(e.target.value))}
+                value={`${store.outputWidth}x${store.outputHeight}`}
+                onChange={(e) => {
+                  const [w, h] = e.target.value.split('x').map(Number)
+                  store.setOutputResolution(w, h)
+                }}
                 disabled={isRecording || isProcessing}
               >
-                {store.displays.map((d, i) => (
-                  <option key={d.id} value={i}>
-                    Display {i + 1} ({d.width}x{d.height})
-                  </option>
-                ))}
-                {store.displays.length === 0 && (
-                  <option value={0}>No displays detected</option>
-                )}
+                <option value="1920x1080">1920x1080 (Full HD)</option>
+                <option value="1280x720">1280x720 (HD)</option>
+                <option value="960x540">960x540 (qHD)</option>
               </select>
             </div>
 
@@ -217,6 +225,17 @@ export function App() {
                 <p className="result-details">
                   {store.lastResult.frameCount} frames | {formatTime(store.lastResult.durationMs)} | {store.lastResult.format.toUpperCase()}
                 </p>
+                <button
+                  className="edit-btn"
+                  onClick={async () => {
+                    if (store.lastResult) {
+                      await editorStore.addClip(store.lastResult.outputPath)
+                      setCurrentView('editor')
+                    }
+                  }}
+                >
+                  Edit
+                </button>
               </div>
             )}
           </div>
@@ -240,6 +259,8 @@ export function App() {
           {store.outputPath && ` | Output: ${store.outputPath}`}
         </p>
       </footer>
+      </>
+      )}
     </div>
   )
 }

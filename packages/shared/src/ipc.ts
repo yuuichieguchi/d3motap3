@@ -25,12 +25,20 @@ export const IPC_CHANNELS = {
   SCRIPT_RUN: 'script:run',
   SCRIPT_CANCEL: 'script:cancel',
   SCRIPT_STATUS: 'script:status',
+  SCRIPT_SAVE_TEMP: 'script:save-temp',
   DIALOG_OPEN_FILE: 'dialog:open-file',
   AI_START_NARRATION: 'ai:start-narration',
   AI_START_SCRIPT_GEN: 'ai:start-script-gen',
   AI_STATUS: 'ai:status',
   AI_CANCEL: 'ai:cancel',
   AI_RESET: 'ai:reset',
+  CAPTION_SET: 'caption:set',
+  CAPTION_CLEAR: 'caption:clear',
+  EDITOR_PROBE: 'editor:probe',
+  EDITOR_THUMBNAILS: 'editor:thumbnails',
+  EDITOR_EXPORT: 'editor:export',
+  EDITOR_EXPORT_STATUS: 'editor:export-status',
+  EDITOR_IMPORT: 'editor:import',
 } as const
 
 export type IpcChannel = typeof IPC_CHANNELS[keyof typeof IPC_CHANNELS]

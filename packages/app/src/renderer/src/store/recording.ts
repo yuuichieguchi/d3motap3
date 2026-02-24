@@ -21,7 +21,8 @@ interface RecordingState {
   outputPath: string | null
   lastResult: RecordingResult | null
   displays: DisplayInfo[]
-  selectedDisplayIndex: number
+  outputWidth: number
+  outputHeight: number
   fps: number
   format: string
   quality: string
@@ -33,7 +34,7 @@ interface RecordingState {
   setOutputPath: (path: string | null) => void
   setLastResult: (result: RecordingResult | null) => void
   setDisplays: (displays: DisplayInfo[]) => void
-  setSelectedDisplayIndex: (index: number) => void
+  setOutputResolution: (w: number, h: number) => void
   setFps: (fps: number) => void
   setFormat: (format: string) => void
   setQuality: (quality: string) => void
@@ -48,7 +49,8 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   outputPath: null,
   lastResult: null,
   displays: [],
-  selectedDisplayIndex: 0,
+  outputWidth: 1920,
+  outputHeight: 1080,
   fps: 30,
   format: 'mp4',
   quality: 'medium',
@@ -60,7 +62,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   setOutputPath: (outputPath) => set({ outputPath }),
   setLastResult: (lastResult) => set({ lastResult }),
   setDisplays: (displays) => set({ displays }),
-  setSelectedDisplayIndex: (selectedDisplayIndex) => set({ selectedDisplayIndex }),
+  setOutputResolution: (w, h) => set({ outputWidth: w, outputHeight: h }),
   setFps: (fps) => set({ fps }),
   setFormat: (format) => set({ format }),
   setQuality: (quality) => set({ quality }),

@@ -1,3 +1,4 @@
+import { useState, useCallback } from 'react'
 import { useSourcesStore } from '../store/sources'
 
 interface SourceItemProps {
@@ -6,10 +7,48 @@ interface SourceItemProps {
   width: number
   height: number
   isActive: boolean
+  sourceType?: string
 }
 
-export function SourceItem({ id, name, width, height, isActive }: SourceItemProps) {
+/** Encode a string into a Uint8Array of UTF-8 bytes */
+function encodeBytes(value: string): Uint8Array {
+  return new TextEncoder().encode(value)
+}
+
+/** Map of special keys to their terminal escape sequences */
+const SPECIAL_KEY_MAP: Record<string, string> = {
+  Enter: '\r',
+  Backspace: '\x7f',
+  Tab: '\t',
+  Escape: '\x1b',
+  ArrowUp: '\x1b[A',
+  ArrowDown: '\x1b[B',
+  ArrowRight: '\x1b[C',
+  ArrowLeft: '\x1b[D',
+}
+
+export function SourceItem({ id, name, width, height, isActive, sourceType }: SourceItemProps) {
   const removeSource = useSourcesStore((s) => s.removeSource)
+  const isTerminal = sourceType === 'terminal' || name.toLowerCase().includes('terminal')
+  const [terminalFocused, setTerminalFocused] = useState(false)
+
+  const handleTerminalKeyDown = useCallback(
+    (e: React.KeyboardEvent<HTMLDivElement>) => {
+      e.preventDefault()
+
+      const specialSequence = SPECIAL_KEY_MAP[e.key]
+      if (specialSequence) {
+        window.api.invoke('terminal:write-input', id, encodeBytes(specialSequence))
+        return
+      }
+
+      // Single printable character
+      if (e.key.length === 1) {
+        window.api.invoke('terminal:write-input', id, encodeBytes(e.key))
+      }
+    },
+    [id],
+  )
 
   return (
     <div className="source-item">
@@ -21,6 +60,18 @@ export function SourceItem({ id, name, width, height, isActive }: SourceItemProp
       <button className="source-remove-btn" onClick={() => removeSource(id)} title="Remove source">
         x
       </button>
+
+      {isTerminal && (
+        <div
+          className={`terminal-input-area${terminalFocused ? ' terminal-focused' : ''}`}
+          tabIndex={0}
+          onKeyDown={handleTerminalKeyDown}
+          onFocus={() => setTerminalFocused(true)}
+          onBlur={() => setTerminalFocused(false)}
+        >
+          {terminalFocused ? 'Typing... (Esc to unfocus)' : 'Click to type...'}
+        </div>
+      )}
     </div>
   )
 }
