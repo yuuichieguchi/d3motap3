@@ -16,19 +16,14 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
   const [regionY, setRegionY] = useState(0)
   const [regionW, setRegionW] = useState(800)
   const [regionH, setRegionH] = useState(600)
-  const [regionSelected, setRegionSelected] = useState(false)
-  const [showAdvanced, setShowAdvanced] = useState(false)
   const regionDisplayRef = useRef(regionDisplay)
   const onCloseRef = useRef(onClose)
-  const isAutoAddingRef = useRef(false)
 
   useEffect(() => { regionDisplayRef.current = regionDisplay }, [regionDisplay])
   useEffect(() => { onCloseRef.current = onClose }, [onClose])
 
   useEffect(() => {
     if (open) {
-      setRegionSelected(false)
-      setShowAdvanced(false)
       if (sourceType === 'Window') {
         sourcesStore.refreshAvailableWindows()
       } else if (sourceType === 'Webcam') {
@@ -50,8 +45,6 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
       setRegionY(rect.y)
       setRegionW(rect.width)
       setRegionH(rect.height)
-      setRegionSelected(true)
-      isAutoAddingRef.current = true
       const { addSource } = useSourcesStore.getState()
       addSource('Region', {
         display_index: regionDisplayRef.current,
@@ -63,7 +56,6 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
         onCloseRef.current()
       }).catch((err) => {
         console.error('Failed to auto-add region source:', err)
-        isAutoAddingRef.current = false
       })
     })
     return unsubscribe
@@ -77,16 +69,6 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
       // error is set in store
     }
   }
-
-  const regionInputStyle = {
-    width: '100%',
-    padding: '4px 6px',
-    background: 'rgba(255,255,255,0.35)',
-    border: '1px solid rgba(255,255,255,0.45)',
-    borderRadius: 8,
-    fontSize: 13,
-    color: 'var(--text-primary)',
-  } as const
 
   if (!open) return null
 
@@ -212,67 +194,9 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
             <button
               className="source-option-btn"
               onClick={() => window.api?.invoke('region:open-selector', regionDisplay)}
-              style={{ marginBottom: 8 }}
             >
               Select Region...
             </button>
-            {regionSelected && (
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginBottom: 8 }}>
-                Selected: {regionX}, {regionY} — {regionW} × {regionH}
-              </div>
-            )}
-            <button
-              className="source-option-btn"
-              style={{
-                background: regionSelected ? 'rgba(0, 122, 255, 0.15)' : undefined,
-                borderColor: regionSelected ? 'var(--accent)' : undefined,
-              }}
-              disabled={isAutoAddingRef.current || (!regionSelected && regionW <= 0)}
-              onClick={() => handleAdd({
-                display_index: regionDisplay,
-                x: regionX,
-                y: regionY,
-                region_width: regionW,
-                region_height: regionH,
-              })}
-            >
-              Add Region
-            </button>
-            <div style={{ marginTop: 8 }}>
-              <button
-                style={{
-                  background: 'none',
-                  border: 'none',
-                  color: 'var(--text-secondary)',
-                  fontSize: 11,
-                  cursor: 'pointer',
-                  padding: '4px 0',
-                }}
-                onClick={() => setShowAdvanced(!showAdvanced)}
-              >
-                {showAdvanced ? '▼' : '▶'} Advanced (manual input)
-              </button>
-              {showAdvanced && (
-                <div style={{ marginTop: 4 }}>
-                  <div className="control-group">
-                    <label>X</label>
-                    <input type="number" min={0} value={regionX} onChange={(e) => { setRegionX(Number(e.target.value)); setRegionSelected(true) }} style={regionInputStyle} />
-                  </div>
-                  <div className="control-group">
-                    <label>Y</label>
-                    <input type="number" min={0} value={regionY} onChange={(e) => { setRegionY(Number(e.target.value)); setRegionSelected(true) }} style={regionInputStyle} />
-                  </div>
-                  <div className="control-group">
-                    <label>Width</label>
-                    <input type="number" min={1} value={regionW} onChange={(e) => { setRegionW(Number(e.target.value)); setRegionSelected(true) }} style={regionInputStyle} />
-                  </div>
-                  <div className="control-group">
-                    <label>Height</label>
-                    <input type="number" min={1} value={regionH} onChange={(e) => { setRegionH(Number(e.target.value)); setRegionSelected(true) }} style={regionInputStyle} />
-                  </div>
-                </div>
-              )}
-            </div>
           </div>
         )}
 
