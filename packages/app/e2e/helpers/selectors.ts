@@ -51,6 +51,11 @@ export const S = {
   errorBox: '.error-box',
   resultBox: '.result-box',
   controlGroup: '.control-group',
+  sourceList: '.source-list',
+
+  // Recording Section
+  recordingSection: '.recording-section',
+  appFooter: '.app-footer',
 
   // Navigation
   navBtn: '.nav-btn',
@@ -83,6 +88,8 @@ export const S = {
   timelineOverlaySelected: '.timeline-overlay.selected',
   timelinePlayhead: '.timeline-playhead',
   overlayTextLabel: '.overlay-text-label',
+  overlayTrack: '.overlay-track',
+  clipTrack: '.clip-track',
 
   // Panels
   textOverlayEditor: '.text-overlay-editor',

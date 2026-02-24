@@ -1,7 +1,49 @@
 import { test, expect } from '../fixtures/electron-app'
 import { S } from '../helpers/selectors'
+import type { ElectronApplication } from '@playwright/test'
 
-test.describe('Layout Selection', () => {
+async function setupLayoutMocks(electronApp: ElectronApplication, sourceCount: number): Promise<void> {
+  await electronApp.evaluate(({ ipcMain }, count) => {
+    ipcMain.removeHandler('system:ffmpeg-available')
+    ipcMain.handle('system:ffmpeg-available', () => true)
+
+    ipcMain.removeHandler('system:ffmpeg-version')
+    ipcMain.handle('system:ffmpeg-version', () => '6.0')
+
+    ipcMain.removeHandler('recording:list-displays')
+    ipcMain.handle('recording:list-displays', () => [
+      { id: 0, width: 1920, height: 1080 },
+    ])
+
+    ipcMain.removeHandler('layout:set')
+    ipcMain.handle('layout:set', () => {})
+
+    const sources = Array.from({ length: count }, (_, i) => ({
+      id: i + 1,
+      name: `Terminal ${i + 1}`,
+      width: 800,
+      height: 600,
+      isActive: true,
+    }))
+
+    ipcMain.removeHandler('sources:list')
+    ipcMain.handle('sources:list', () => sources)
+
+    ipcMain.removeHandler('sources:add')
+    ipcMain.handle('sources:add', () => sources.length + 1)
+
+    ipcMain.removeHandler('sources:remove')
+    ipcMain.handle('sources:remove', () => {})
+  }, sourceCount)
+}
+
+test.describe.serial('Layout Selection', () => {
+  test('setup: reset view state', async ({ page, electronApp }) => {
+    await setupLayoutMocks(electronApp, 0)
+    await page.reload()
+    await page.locator(S.appHeader).waitFor({ state: 'visible', timeout: 30000 })
+  })
+
   test('three layout buttons exist', async ({ page }) => {
     const options = page.locator(S.layoutOption)
     await expect(options).toHaveCount(3)
@@ -24,26 +66,16 @@ test.describe('Layout Selection', () => {
   })
 
   test.describe.serial('with sources', () => {
-    test('enable SideBySide after adding 2 sources', async ({ page }) => {
-      // Add first Terminal source
-      await page.locator(S.addSourceBtn).click()
-      const select = page.locator(`${S.dialog} select`)
-      await select.selectOption('Terminal')
-      const defaultTerminalBtn = page.locator(S.sourceOptionBtn, {
-        hasText: 'Default Terminal',
-      })
-      await defaultTerminalBtn.click()
-      await expect(page.locator(S.dialogOverlay)).toBeHidden()
-      await expect(page.locator(S.sourceItem).first()).toBeVisible({ timeout: 10000 })
+    test('setup: mock 2 sources', async ({ page, electronApp }) => {
+      await setupLayoutMocks(electronApp, 2)
+      await page.reload()
+      await page.locator(S.appHeader).waitFor({ state: 'visible', timeout: 30000 })
 
-      // Add second Terminal source
-      await page.locator(S.addSourceBtn).click()
-      await page.locator(`${S.dialog} select`).selectOption('Terminal')
-      await page.locator(S.sourceOptionBtn, { hasText: 'Default Terminal' }).click()
-      await expect(page.locator(S.dialogOverlay)).toBeHidden()
+      // Verify 2 sources are rendered
       await expect(page.locator(S.sourceItem)).toHaveCount(2, { timeout: 10000 })
+    })
 
-      // SideBySide should now be enabled
+    test('SideBySide enabled with 2 sources', async ({ page }) => {
       const sideBySideBtn = page.locator(S.layoutOption).nth(1)
       await expect(sideBySideBtn).toBeEnabled()
     })
@@ -75,19 +107,6 @@ test.describe('Layout Selection', () => {
       expect(texts).toContain('Top Right')
       expect(texts).toContain('Bottom Left')
       expect(texts).toContain('Bottom Right')
-    })
-
-    test('cleanup: remove sources', async ({ page }) => {
-      // Switch back to Single first so buttons are not disabled
-      await page.locator(S.layoutOption).nth(0).click()
-      await expect(page.locator(S.layoutOptionSelected)).toContainText('Single')
-
-      // Remove both sources
-      await page.locator(S.sourceRemoveBtn).first().click()
-      await expect(page.locator(S.sourceItem)).toHaveCount(1, { timeout: 5000 })
-
-      await page.locator(S.sourceRemoveBtn).first().click()
-      await expect(page.locator(S.emptyMessage)).toBeVisible()
     })
   })
 })
