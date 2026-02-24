@@ -930,6 +930,7 @@ body {
 /* Custom scrollbar — light theme */
 .sidebar::-webkit-scrollbar,
 .dialog::-webkit-scrollbar,
+.dialog-content::-webkit-scrollbar,
 .source-list::-webkit-scrollbar,
 .ai-result::-webkit-scrollbar {
   width: 6px;
@@ -937,6 +938,7 @@ body {
 
 .sidebar::-webkit-scrollbar-track,
 .dialog::-webkit-scrollbar-track,
+.dialog-content::-webkit-scrollbar-track,
 .source-list::-webkit-scrollbar-track,
 .ai-result::-webkit-scrollbar-track {
   background: transparent;
@@ -944,6 +946,7 @@ body {
 
 .sidebar::-webkit-scrollbar-thumb,
 .dialog::-webkit-scrollbar-thumb,
+.dialog-content::-webkit-scrollbar-thumb,
 .source-list::-webkit-scrollbar-thumb,
 .ai-result::-webkit-scrollbar-thumb {
   background: rgba(0, 0, 0, 0.15);
@@ -952,6 +955,7 @@ body {
 
 .sidebar::-webkit-scrollbar-thumb:hover,
 .dialog::-webkit-scrollbar-thumb:hover,
+.dialog-content::-webkit-scrollbar-thumb:hover,
 .source-list::-webkit-scrollbar-thumb:hover,
 .ai-result::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 0, 0, 0.25);
@@ -964,7 +968,8 @@ body {
   .app-footer {
     background-color: rgba(255, 255, 255, 0.92);
   }
-  .dialog {
+  .dialog,
+  .dialog-content {
     background-color: rgba(255, 255, 255, 0.96);
   }
   .dialog-overlay {
@@ -979,4 +984,559 @@ body {
   .result-box {
     background-color: rgba(40, 167, 69, 0.1);
   }
+}
+
+/* =============================================
+   Navigation (App.tsx)
+   ============================================= */
+
+.nav-btn {
+  -webkit-app-region: no-drag;
+  padding: 4px 10px;
+  font-size: 12px;
+  background-color: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-weight: 600;
+  transition: var(--transition-glass);
+}
+
+.nav-btn:hover {
+  background-color: var(--accent-hover);
+  box-shadow: var(--accent-glow);
+}
+
+.edit-btn {
+  margin-top: 8px;
+  padding: 6px 12px;
+  background-color: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.edit-btn:hover {
+  background-color: var(--accent-hover);
+  box-shadow: var(--accent-glow);
+}
+
+/* =============================================
+   AI Panel extras
+   ============================================= */
+
+.caption-controls,
+.script-run-controls {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.caption-btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.caption-btn.apply {
+  background: var(--accent);
+  color: white;
+}
+
+.caption-btn.apply:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--accent-glow);
+}
+
+.caption-btn.clear {
+  background: rgba(255, 255, 255, 0.38);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+}
+
+.caption-btn.clear:hover {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.script-run-btn {
+  padding: 8px 16px;
+  background: linear-gradient(135deg, #007AFF, #5856d6);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.script-run-btn:hover {
+  box-shadow: var(--accent-glow-strong);
+  transform: translateY(-1px);
+}
+
+/* =============================================
+   Terminal Input
+   ============================================= */
+
+.terminal-input-area {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  border-radius: var(--radius-sm);
+  padding: 8px;
+  margin-top: 6px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-align: center;
+  cursor: pointer;
+  transition: var(--transition-glass);
+  outline: none;
+}
+
+.terminal-input-area.terminal-focused {
+  border: 1px solid var(--accent);
+  background: rgba(0, 122, 255, 0.1);
+  color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 122, 255, 0.25);
+}
+
+/* =============================================
+   Editor View Layout
+   ============================================= */
+
+.editor-view {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+}
+
+.editor-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 24px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border-bottom: 1px solid var(--glass-border);
+  box-shadow: var(--glass-shadow-sm);
+  z-index: 5;
+}
+
+.editor-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--glass-shine);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.editor-header h2 {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 0;
+}
+
+.editor-back-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.38);
+  -webkit-backdrop-filter: var(--glass-blur-light);
+  backdrop-filter: var(--glass-blur-light);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.editor-back-btn:hover {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.editor-export-btn {
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.editor-export-btn:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--accent-glow);
+}
+
+.editor-export-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editor-preview {
+  flex: 1;
+  background-color: rgba(0, 0, 0, 0.04);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
+  margin: 12px 16px;
+}
+
+.editor-video {
+  max-width: 100%;
+  max-height: 100%;
+  border-radius: 4px;
+  display: block;
+}
+
+.editor-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.editor-empty-state button {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.editor-empty-state button:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--accent-glow);
+}
+
+.editor-toolbar {
+  display: flex;
+  gap: 8px;
+  padding: 8px 16px;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur-light);
+  backdrop-filter: var(--glass-blur-light);
+  border-top: 1px solid var(--glass-border);
+  border-bottom: 1px solid var(--glass-border);
+}
+
+.editor-toolbar button {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.38);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.editor-toolbar button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.7);
+}
+
+.editor-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.editor-playback {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.play-btn {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: white;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: var(--transition-glass);
+}
+
+.play-btn:hover {
+  background: var(--accent-hover);
+  box-shadow: var(--accent-glow);
+}
+
+.time-display {
+  font-variant-numeric: tabular-nums;
+  font-size: 12px;
+  color: var(--text-secondary);
+  min-width: 40px;
+}
+
+.seek-bar {
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.export-progress-bar {
+  width: 100%;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.25);
+  border-radius: 2px;
+  overflow: hidden;
+  position: relative;
+  margin: 8px 16px;
+}
+
+.export-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #007AFF, #00c6fb, #5856d6);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 12px rgba(0, 122, 255, 0.4);
+}
+
+.export-progress-bar span {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+/* =============================================
+   Timeline
+   ============================================= */
+
+.timeline {
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur-light);
+  backdrop-filter: var(--glass-blur-light);
+  border-top: 1px solid var(--glass-border);
+  padding: 8px;
+  overflow-x: auto;
+}
+
+.timeline-empty {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding: 16px;
+}
+
+.timeline-track {
+  position: relative;
+  display: flex;
+  min-height: 48px;
+  gap: 0;
+}
+
+.clip-track {
+  background: rgba(255, 255, 255, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.overlay-track {
+  background: rgba(88, 86, 214, 0.1);
+  border: 1px solid rgba(88, 86, 214, 0.2);
+  border-radius: var(--radius-sm);
+  min-height: 32px;
+  margin-top: 4px;
+  position: relative;
+}
+
+.timeline-playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+  z-index: 5;
+  box-shadow: 0 0 8px rgba(0, 122, 255, 0.5);
+  pointer-events: none;
+}
+
+.timeline-clip-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.timeline-clip {
+  flex: 1;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.42);
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  transition: var(--transition-glass);
+}
+
+.timeline-clip.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 122, 255, 0.3);
+  background: rgba(0, 122, 255, 0.15);
+}
+
+.clip-thumbnails {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.clip-thumb {
+  flex: 1;
+  object-fit: cover;
+  min-width: 0;
+}
+
+.clip-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 10px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 4px;
+}
+
+.transition-indicator {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin: 0 -2px;
+  z-index: 2;
+  transition: var(--transition-glass);
+}
+
+.transition-indicator.has-transition {
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+  box-shadow: var(--accent-glow);
+}
+
+.timeline-overlay {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  background: rgba(88, 86, 214, 0.25);
+  border: 1px solid rgba(88, 86, 214, 0.35);
+  border-radius: 4px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  transition: var(--transition-glass);
+}
+
+.timeline-overlay.selected {
+  border-color: var(--accent-secondary);
+  box-shadow: 0 0 12px rgba(88, 86, 214, 0.4);
+  background: rgba(88, 86, 214, 0.35);
+}
+
+.overlay-text-label {
+  font-size: 10px;
+  color: #5856d6;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* =============================================
+   Panels & Dialogs
+   ============================================= */
+
+.text-overlay-editor {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.dialog-content {
+  position: relative;
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--glass-shadow);
+  padding: 20px;
+  width: 400px;
+  max-height: 500px;
+  overflow-y: auto;
+  animation: dialog-enter 0.2s ease-out;
+}
+
+.dialog-content::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--glass-shine);
+  border-radius: inherit;
+  pointer-events: none;
+}
+
+.dialog-content h3 {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.export-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 0;
 }
