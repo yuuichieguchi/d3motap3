@@ -32,23 +32,33 @@ export function EditorView() {
     if (!videoRef.current) return
     const result = getClipAtTime(store.currentTimeMs)
     if (result) {
-      if (currentSourcePathRef.current !== result.clip.sourcePath) {
+      const clipChanged = currentSourcePathRef.current !== result.clip.sourcePath
+      if (clipChanged) {
         currentSourcePathRef.current = result.clip.sourcePath
         videoRef.current.src = `media://local${result.clip.sourcePath}`
+        videoRef.current.currentTime = result.localTime / 1000
+        if (store.isPlaying) {
+          videoRef.current.play()
+        }
+      } else if (!store.isPlaying) {
+        // Only seek when not playing (user scrubbing the timeline)
+        videoRef.current.currentTime = result.localTime / 1000
       }
-      videoRef.current.currentTime = result.localTime / 1000
     } else {
       currentSourcePathRef.current = null
     }
-  }, [store.currentTimeMs, getClipAtTime])
+  }, [store.currentTimeMs, getClipAtTime, store.isPlaying])
 
-  // Playback timer
+  // Playback: video.play()/pause() + setInterval for UI timeline sync
   useEffect(() => {
     if (store.isPlaying) {
+      if (videoRef.current) {
+        videoRef.current.play()
+      }
       playbackIntervalRef.current = setInterval(() => {
         const state = useEditorStore.getState()
         const totalDuration = state.totalDuration()
-        const newTime = state.currentTimeMs + 33 // ~30fps playback
+        const newTime = state.currentTimeMs + 33 // ~30fps UI update
         if (newTime >= totalDuration) {
           state.setCurrentTime(0)
           state.setPlaying(false)
@@ -57,6 +67,9 @@ export function EditorView() {
         }
       }, 33)
     } else {
+      if (videoRef.current) {
+        videoRef.current.pause()
+      }
       if (playbackIntervalRef.current) {
         clearInterval(playbackIntervalRef.current)
         playbackIntervalRef.current = null
