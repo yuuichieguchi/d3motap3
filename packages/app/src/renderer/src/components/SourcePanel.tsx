@@ -3,6 +3,8 @@ import { useSourcesStore } from '../store/sources'
 import { useLayoutStore } from '../store/layout'
 import { SourceItem } from './SourceItem'
 
+const MAX_SOURCES = 2
+
 interface SourcePanelProps {
   onAddSource: () => void
 }
@@ -27,7 +29,7 @@ export function SourcePanel({ onAddSource }: SourcePanelProps) {
     <div className="source-panel-v2">
       <div className="panel-header">
         <h3>Sources</h3>
-        <button className="add-source-btn" onClick={onAddSource}>
+        <button className="add-source-btn" onClick={onAddSource} disabled={sourcesStore.activeSources.length >= MAX_SOURCES}>
           + Add
         </button>
       </div>

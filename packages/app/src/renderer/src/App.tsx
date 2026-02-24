@@ -77,6 +77,7 @@ export function App() {
         fps: store.fps,
         format: store.format,
         quality: store.quality,
+        outputDir: store.outputDir || undefined,
       }) as string
 
       store.setOutputPath(outputPath)
@@ -190,6 +191,26 @@ export function App() {
                 <option value="medium">Medium</option>
                 <option value="high">High</option>
               </select>
+            </div>
+
+            {/* Output Directory */}
+            <div className="output-dir-section">
+              <label>Save to</label>
+              <div className="output-dir-row">
+                <span className="output-dir-path">{store.outputDir || 'Default (Movies)'}</span>
+                <button
+                  className="output-dir-change-btn"
+                  onClick={async () => {
+                    const dir = await window.api.invoke('recording:select-output-dir') as string | null
+                    if (dir) {
+                      store.setOutputDir(dir)
+                    }
+                  }}
+                  disabled={isRecording || isProcessing}
+                >
+                  Change...
+                </button>
+              </div>
             </div>
 
             {/* Record buttons */}

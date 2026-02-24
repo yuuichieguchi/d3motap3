@@ -49,8 +49,9 @@ import type {
   IosDeviceJs,
   VideoMetadataJs,
 } from '@d3motap3/core'
+import { existsSync } from 'fs'
 import { app } from 'electron'
-import { join } from 'path'
+import { join, isAbsolute, resolve } from 'path'
 
 export const nativeBridge = {
   hello(): string {
@@ -147,8 +148,14 @@ export const nativeBridge = {
     fps: number
     format: string
     quality: string
+    outputDir?: string
   }): string {
-    const outputDir = app.getPath('videos')
+    let outputDir: string
+    if (config.outputDir && isAbsolute(config.outputDir) && existsSync(resolve(config.outputDir))) {
+      outputDir = config.outputDir
+    } else {
+      outputDir = app.getPath('videos')
+    }
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
     const ext = config.format || 'mp4'
     const outputPath = join(outputDir, `d3motap3-${timestamp}.${ext}`)

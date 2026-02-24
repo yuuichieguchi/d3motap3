@@ -105,4 +105,9 @@ export const S = {
   captionBtnClear: '.caption-btn.clear',
   scriptRunControls: '.script-run-controls',
   scriptRunBtn: '.script-run-btn',
+
+  // Output Directory
+  outputDirSection: '.output-dir-section',
+  outputDirPath: '.output-dir-path',
+  outputDirChangeBtn: '.output-dir-change-btn',
 } as const;

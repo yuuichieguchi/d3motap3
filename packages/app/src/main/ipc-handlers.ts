@@ -97,8 +97,19 @@ export function registerIpcHandlers(): void {
     fps: number
     format: string
     quality: string
+    outputDir?: string
   }) => {
     return nativeBridge.startRecordingV2(config)
+  })
+
+  ipcMain.handle('recording:select-output-dir', async () => {
+    const result = await dialog.showOpenDialog({
+      properties: ['openDirectory'],
+    })
+    if (result.canceled || result.filePaths.length === 0) {
+      return null
+    }
+    return result.filePaths[0]
   })
 
   ipcMain.handle('recording:stop-v2', () => {

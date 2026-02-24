@@ -26,6 +26,7 @@ interface RecordingState {
   fps: number
   format: string
   quality: string
+  outputDir: string
   ffmpegAvailable: boolean | null
   error: string | null
 
@@ -38,6 +39,7 @@ interface RecordingState {
   setFps: (fps: number) => void
   setFormat: (format: string) => void
   setQuality: (quality: string) => void
+  setOutputDir: (dir: string) => void
   setFfmpegAvailable: (available: boolean) => void
   setError: (error: string | null) => void
   reset: () => void
@@ -54,6 +56,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   fps: 30,
   format: 'mp4',
   quality: 'medium',
+  outputDir: '',
   ffmpegAvailable: null,
   error: null,
 
@@ -66,6 +69,7 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   setFps: (fps) => set({ fps }),
   setFormat: (format) => set({ format }),
   setQuality: (quality) => set({ quality }),
+  setOutputDir: (outputDir) => set({ outputDir }),
   setFfmpegAvailable: (ffmpegAvailable) => set({ ffmpegAvailable }),
   setError: (error) => set({ error }),
   reset: () => set({

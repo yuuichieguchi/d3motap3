@@ -52,7 +52,7 @@ export function LayoutSelector() {
             type="range"
             min="0.2"
             max="0.8"
-            step="0.1"
+            step="0.01"
             value={(layoutStore.layoutConfig.ratio as number) ?? 0.5}
             onChange={(e) => {
               layoutStore.setLayoutConfig({ ...layoutStore.layoutConfig, ratio: Number(e.target.value) })
