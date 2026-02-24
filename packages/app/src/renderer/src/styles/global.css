@@ -254,6 +254,66 @@ body {
   cursor: not-allowed;
 }
 
+/* Output directory */
+.output-dir-section {
+  margin-bottom: 12px;
+}
+
+.output-dir-section label {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 4px;
+}
+
+.output-dir-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.output-dir-path {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.35);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.45);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.output-dir-change-btn {
+  padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.38);
+  -webkit-backdrop-filter: var(--glass-blur-light);
+  backdrop-filter: var(--glass-blur-light);
+  color: var(--text-primary);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: var(--transition-glass);
+  flex-shrink: 0;
+}
+
+.output-dir-change-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.52);
+  border-color: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+}
+
+.output-dir-change-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .record-controls {
   margin-top: 16px;
 }
