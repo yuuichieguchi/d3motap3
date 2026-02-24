@@ -181,7 +181,7 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
             </div>
             <button
               className="source-option-btn"
-              onClick={() => window.api.invoke('region:open-selector', regionDisplay)}
+              onClick={() => window.api?.invoke('region:open-selector', regionDisplay)}
               style={{ marginBottom: 8 }}
             >
               Select Region...

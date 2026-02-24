@@ -47,9 +47,10 @@ export function openRegionSelector(displayIndex: number): void {
     y: display.bounds.y,
     width: display.bounds.width,
     height: display.bounds.height,
-    fullscreen: true,
     transparent: true,
     frame: false,
+    resizable: false,
+    movable: false,
     alwaysOnTop: true,
     hasShadow: false,
     skipTaskbar: true,
@@ -60,6 +61,8 @@ export function openRegionSelector(displayIndex: number): void {
       sandbox: false
     }
   })
+
+  regionSelectorWindow.setSimpleFullScreen(true)
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
     regionSelectorWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/region-selector.html`)
@@ -83,6 +86,7 @@ export function openRegionSelector(displayIndex: number): void {
 
 export function closeRegionSelector(): void {
   if (regionSelectorWindow) {
+    regionSelectorWindow.setSimpleFullScreen(false)
     regionSelectorWindow.close()
     regionSelectorWindow = null
   }

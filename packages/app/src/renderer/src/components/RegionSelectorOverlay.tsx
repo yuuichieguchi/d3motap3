@@ -36,6 +36,7 @@ export function RegionSelectorOverlay() {
   const displayRef = useRef<DisplayBounds | null>(null)
 
   useEffect(() => {
+    if (!window.api?.on) return
     const unsubscribe = window.api.on('region:display-info', (...args: unknown[]) => {
       const bounds = args[0] as DisplayBounds
       displayRef.current = bounds
@@ -47,11 +48,11 @@ export function RegionSelectorOverlay() {
     if (!selection.hasSelection) return
     const rect = normalizeRect(selection)
     if (rect.width < 2 || rect.height < 2) return
-    window.api.invoke('region:confirm', rect)
+    window.api?.invoke('region:confirm', rect)
   }, [selection])
 
   const cancelSelection = useCallback(() => {
-    window.api.invoke('region:cancel')
+    window.api?.invoke('region:cancel')
   }, [])
 
   useEffect(() => {
