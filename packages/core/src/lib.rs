@@ -202,7 +202,9 @@ pub fn add_source(_source_type: String, config_json: String) -> napi::Result<u32
             width,
             height,
         } => {
-            let mut src = mobile::android::AndroidCaptureSource::new(device_serial, width, height);
+            let (w, h) = mobile::adb::get_device_resolution(&device_serial)
+                .unwrap_or((width, height));
+            let mut src = mobile::android::AndroidCaptureSource::new(device_serial, w, h);
             src.start().map_err(|e| napi::Error::from_reason(e))?;
             Box::new(src)
         }

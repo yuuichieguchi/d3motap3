@@ -825,6 +825,7 @@ body {
 /* Preview Canvas */
 .preview-canvas-container {
   flex: 1;
+  min-height: 0;
   background-color: rgba(0, 0, 0, 0.15);
   border-radius: var(--radius-sm);
   display: flex;
@@ -837,6 +838,7 @@ body {
 .preview-canvas-element {
   display: block;
   border-radius: 4px;
+  object-fit: contain;
 }
 
 .preview-placeholder {

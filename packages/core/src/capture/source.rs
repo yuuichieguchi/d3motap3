@@ -125,7 +125,7 @@ impl SourceRegistry {
     }
 
     pub fn list(&self) -> Vec<SourceInfo> {
-        self.sources
+        let mut list: Vec<SourceInfo> = self.sources
             .iter()
             .map(|(&id, source)| {
                 let (width, height) = source.dimensions();
@@ -137,15 +137,19 @@ impl SourceRegistry {
                     is_active: source.is_active(),
                 }
             })
-            .collect()
+            .collect();
+        list.sort_by_key(|s| s.id);
+        list
     }
 
     pub fn active_sources(&self) -> Vec<(SourceId, &dyn CaptureSource)> {
-        self.sources
+        let mut list: Vec<(SourceId, &dyn CaptureSource)> = self.sources
             .iter()
             .filter(|(_, s)| s.is_active())
             .map(|(&id, s)| (id, s.as_ref()))
-            .collect()
+            .collect();
+        list.sort_by_key(|(id, _)| *id);
+        list
     }
 
     pub fn len(&self) -> usize {

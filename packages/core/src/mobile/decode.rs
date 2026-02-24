@@ -18,12 +18,14 @@ impl H264Decoder {
         let ffmpeg_path = crate::encoder::find_ffmpeg()?;
         let frame_size = (width as usize) * (height as usize) * 4; // BGRA
 
+        let size_arg = format!("{}x{}", width, height);
         let mut process = Command::new(&ffmpeg_path)
             .args([
                 "-f", "h264",
                 "-i", "pipe:0",
                 "-f", "rawvideo",
                 "-pix_fmt", "bgra",
+                "-s", &size_arg,
                 "-flags", "low_delay",
                 "-fflags", "nobuffer",
                 "pipe:1",
