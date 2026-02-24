@@ -51,4 +51,52 @@ export const S = {
   errorBox: '.error-box',
   resultBox: '.result-box',
   controlGroup: '.control-group',
+
+  // Navigation
+  navBtn: '.nav-btn',
+  editBtn: '.edit-btn',
+
+  // Editor View
+  editorView: '.editor-view',
+  editorHeader: '.editor-header',
+  editorBackBtn: '.editor-back-btn',
+  editorExportBtn: '.editor-export-btn',
+  editorPreview: '.editor-preview',
+  editorVideo: '.editor-video',
+  editorEmptyState: '.editor-empty-state',
+  editorToolbar: '.editor-toolbar',
+  editorPlayback: '.editor-playback',
+  playBtn: '.play-btn',
+  seekBar: '.seek-bar',
+  timeDisplay: '.time-display',
+  exportProgressBar: '.export-progress-bar',
+
+  // Timeline
+  timeline: '.timeline',
+  timelineEmpty: '.timeline-empty',
+  timelineTrack: '.timeline-track',
+  timelineClip: '.timeline-clip',
+  timelineClipSelected: '.timeline-clip.selected',
+  transitionIndicator: '.transition-indicator',
+  transitionActive: '.transition-indicator.has-transition',
+  timelineOverlay: '.timeline-overlay',
+  timelineOverlaySelected: '.timeline-overlay.selected',
+  timelinePlayhead: '.timeline-playhead',
+  overlayTextLabel: '.overlay-text-label',
+
+  // Panels
+  textOverlayEditor: '.text-overlay-editor',
+  dialogContent: '.dialog-content',
+  exportProgress: '.export-progress',
+
+  // Terminal
+  terminalInputArea: '.terminal-input-area',
+  terminalFocused: '.terminal-input-area.terminal-focused',
+
+  // AI extras
+  captionControls: '.caption-controls',
+  captionBtnApply: '.caption-btn.apply',
+  captionBtnClear: '.caption-btn.clear',
+  scriptRunControls: '.script-run-controls',
+  scriptRunBtn: '.script-run-btn',
 } as const;
