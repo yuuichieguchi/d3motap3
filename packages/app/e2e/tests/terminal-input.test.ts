@@ -34,9 +34,15 @@ async function setupTerminalSource(electronApp: ElectronApplication): Promise<vo
     // Mock terminal:write-input
     ipcMain.removeHandler('terminal:write-input')
     ipcMain.handle('terminal:write-input', (_event: any, _sourceId: any, data: any) => {
-      ;(global as any).__terminalWriteLog.push(
-        Array.isArray(data) ? String.fromCharCode(...data) : String(data),
-      )
+      let decoded: string
+      if (Buffer.isBuffer(data)) {
+        decoded = data.toString('utf-8')
+      } else if (data instanceof Uint8Array || Array.isArray(data)) {
+        decoded = String.fromCharCode(...data)
+      } else {
+        decoded = String(data)
+      }
+      ;(global as any).__terminalWriteLog.push(decoded)
     })
 
     // Available sources for dialog

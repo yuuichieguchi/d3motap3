@@ -1,6 +1,7 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useEditorStore } from '../store/editor'
 import { Timeline } from './Timeline'
+import { TextOverlayEditor } from './TextOverlayEditor'
 
 interface EditorViewProps {
   onBack: () => void
@@ -173,6 +174,9 @@ export function EditorView({ onBack }: EditorViewProps) {
 
       {/* Timeline */}
       <Timeline />
+
+      {/* Text overlay editor */}
+      <TextOverlayEditor />
 
       {/* Export status */}
       {store.exportStatus.status === 'exporting' && (
