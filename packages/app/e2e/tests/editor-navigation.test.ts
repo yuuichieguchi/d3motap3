@@ -117,24 +117,6 @@ test.describe('Editor Navigation', () => {
     await expect(editorView).not.toBeVisible()
   })
 
-  test('editor-back-btn returns to recording UI', async ({ page }) => {
-    // Go to editor first
-    const navBtn = page.locator(S.navBtn)
-    await navBtn.click()
-
-    const editorView = page.locator(S.editorView)
-    await expect(editorView).toBeVisible()
-
-    // Click back button
-    const backBtn = page.locator(S.editorBackBtn)
-    await backBtn.click()
-
-    // Should be back to recording
-    const sidebar = page.locator('.sidebar')
-    await expect(sidebar).toBeVisible()
-    await expect(editorView).not.toBeVisible()
-  })
-
   test.describe.serial('recording → edit flow', () => {
     test('Record and stop to get result-box with edit-btn', async ({ page, electronApp }) => {
       await setupNavigationMocks(electronApp)

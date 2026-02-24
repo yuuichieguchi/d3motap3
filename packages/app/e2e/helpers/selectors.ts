@@ -64,7 +64,6 @@ export const S = {
   // Editor View
   editorView: '.editor-view',
   editorHeader: '.editor-header',
-  editorBackBtn: '.editor-back-btn',
   editorExportBtn: '.editor-export-btn',
   editorPreview: '.editor-preview',
   editorVideo: '.editor-video',

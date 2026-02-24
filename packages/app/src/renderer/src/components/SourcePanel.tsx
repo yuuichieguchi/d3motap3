@@ -1,11 +1,13 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useSourcesStore } from '../store/sources'
 import { useLayoutStore } from '../store/layout'
 import { SourceItem } from './SourceItem'
-import { AddSourceDialog } from './AddSourceDialog'
 
-export function SourcePanel() {
-  const [dialogOpen, setDialogOpen] = useState(false)
+interface SourcePanelProps {
+  onAddSource: () => void
+}
+
+export function SourcePanel({ onAddSource }: SourcePanelProps) {
   const sourcesStore = useSourcesStore()
   const layoutStore = useLayoutStore()
 
@@ -25,7 +27,7 @@ export function SourcePanel() {
     <div className="source-panel-v2">
       <div className="panel-header">
         <h3>Sources</h3>
-        <button className="add-source-btn" onClick={() => setDialogOpen(true)}>
+        <button className="add-source-btn" onClick={onAddSource}>
           + Add
         </button>
       </div>
@@ -44,7 +46,6 @@ export function SourcePanel() {
         )}
       </div>
 
-      <AddSourceDialog open={dialogOpen} onClose={() => setDialogOpen(false)} />
     </div>
   )
 }

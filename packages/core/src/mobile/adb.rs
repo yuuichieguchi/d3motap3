@@ -10,26 +10,50 @@ pub struct AdbDevice {
 
 /// Find adb binary on the system.
 pub fn find_adb() -> Result<PathBuf, String> {
-    const CANDIDATES: &[&str] = &[
-        "/opt/homebrew/bin/adb",
-        "/usr/local/bin/adb",
-        "/usr/bin/adb",
-        "adb",
-    ];
-    for &candidate in CANDIDATES {
-        let ok = Command::new(candidate)
-            .arg("version")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
-        if ok {
-            return Ok(PathBuf::from(candidate));
+    // 1. Check ANDROID_HOME / ANDROID_SDK_ROOT environment variables first
+    for env_var in &["ANDROID_HOME", "ANDROID_SDK_ROOT"] {
+        if let Ok(sdk_path) = std::env::var(env_var) {
+            let adb_path = PathBuf::from(&sdk_path).join("platform-tools").join("adb");
+            if is_valid_adb(&adb_path) {
+                return Ok(adb_path);
+            }
         }
     }
+
+    // 2. Check well-known paths (with home directory expansion)
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates: Vec<PathBuf> = vec![
+        PathBuf::from("/opt/homebrew/bin/adb"),
+        PathBuf::from("/usr/local/bin/adb"),
+        PathBuf::from("/usr/bin/adb"),
+        PathBuf::from(&home).join("Library/Android/sdk/platform-tools/adb"), // macOS Android Studio
+        PathBuf::from(&home).join("Android/Sdk/platform-tools/adb"),         // Linux Android Studio
+    ];
+
+    for candidate in &candidates {
+        if is_valid_adb(candidate) {
+            return Ok(candidate.clone());
+        }
+    }
+
+    // 3. Try bare "adb" command (relies on PATH)
+    let bare = PathBuf::from("adb");
+    if is_valid_adb(&bare) {
+        return Ok(bare);
+    }
+
     Err("ADB not found. Install Android SDK platform-tools.".to_string())
+}
+
+fn is_valid_adb(path: &PathBuf) -> bool {
+    Command::new(path)
+        .arg("version")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 pub fn is_adb_available() -> bool {

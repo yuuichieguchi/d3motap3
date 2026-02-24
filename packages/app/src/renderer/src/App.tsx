@@ -3,6 +3,7 @@ import { useRecordingStore } from './store/recording'
 import { useSourcesStore } from './store/sources'
 import { useEditorStore } from './store/editor'
 import { SourcePanel } from './components/SourcePanel'
+import { AddSourceDialog } from './components/AddSourceDialog'
 import { LayoutSelector } from './components/LayoutSelector'
 import { ScriptPanel } from './components/ScriptPanel'
 import { AiPanel } from './components/AiPanel'
@@ -21,6 +22,7 @@ export function App() {
   const sourcesStore = useSourcesStore()
   const editorStore = useEditorStore()
   const [currentView, setCurrentView] = useState<'recording' | 'editor'>('recording')
+  const [addSourceOpen, setAddSourceOpen] = useState(false)
   const elapsedIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Load displays and check FFmpeg on mount
@@ -119,13 +121,13 @@ export function App() {
       </header>
 
       {currentView === 'editor' ? (
-        <EditorView onBack={() => setCurrentView('recording')} />
+        <EditorView />
       ) : (
       <>
       <main className="app-main">
         {/* Left sidebar: Sources + Layout + Recording controls */}
         <div className="sidebar">
-          <SourcePanel />
+          <SourcePanel onAddSource={() => setAddSourceOpen(true)} />
           <LayoutSelector />
           <ScriptPanel />
           <AiPanel />
@@ -261,6 +263,7 @@ export function App() {
       </footer>
       </>
       )}
+      <AddSourceDialog open={addSourceOpen} onClose={() => setAddSourceOpen(false)} />
     </div>
   )
 }

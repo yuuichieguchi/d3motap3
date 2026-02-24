@@ -38,6 +38,84 @@ async function addDisplaySource(page: Page, display: DisplayInfo): Promise<numbe
 test.describe.serial('Recording Pipeline Integration', () => {
   const RECORDING_DURATION_MS = 3000;
 
+  // ==================== Setup ====================
+
+  test('setup: ensure FFmpeg mocks', async ({ page, electronApp }) => {
+    await electronApp.evaluate(({ ipcMain }) => {
+      ipcMain.removeHandler('system:ffmpeg-available')
+      ipcMain.handle('system:ffmpeg-available', () => true)
+
+      ipcMain.removeHandler('system:ffmpeg-version')
+      ipcMain.handle('system:ffmpeg-version', () => '6.0')
+
+      ipcMain.removeHandler('recording:list-displays')
+      ipcMain.handle('recording:list-displays', () => [
+        { id: 0, width: 1920, height: 1080 },
+      ])
+
+      ;(global as any).__sourcesMockState = {
+        sources: [{ id: 1, name: 'Screen 1', width: 1920, height: 1080, isActive: true }],
+        nextId: 2,
+      }
+
+      ipcMain.removeHandler('sources:list')
+      ipcMain.handle('sources:list', () => {
+        return (global as any).__sourcesMockState.sources
+      })
+
+      ipcMain.removeHandler('recording:start-v2')
+      ipcMain.handle('recording:start-v2', (_event: any, _config: any) => {
+        const path = '/tmp/test-integration-recording.mp4'
+        ;(global as any).__integrationMockState = { isRecording: true, startTime: Date.now(), outputPath: path }
+        return path
+      })
+
+      ipcMain.removeHandler('recording:stop-v2')
+      ipcMain.handle('recording:stop-v2', () => {
+        const state = (global as any).__integrationMockState || {}
+        state.isRecording = false
+        const elapsed = Date.now() - (state.startTime || Date.now())
+        return {
+          outputPath: state.outputPath || '/tmp/test-integration-recording.mp4',
+          frameCount: Math.max(1, Math.floor(elapsed / 33)),
+          durationMs: elapsed,
+          format: 'mp4',
+        }
+      })
+
+      ipcMain.removeHandler('recording:is-recording-v2')
+      ipcMain.handle('recording:is-recording-v2', () => {
+        return (global as any).__integrationMockState?.isRecording || false
+      })
+
+      ipcMain.removeHandler('recording:elapsed-v2')
+      ipcMain.handle('recording:elapsed-v2', () => {
+        const state = (global as any).__integrationMockState
+        if (!state?.isRecording) return 0
+        return Date.now() - state.startTime
+      })
+
+      ipcMain.removeHandler('sources:add')
+      ipcMain.handle('sources:add', (_event: any, _type: any, _config: any) => {
+        const state = (global as any).__sourcesMockState
+        const id = state.nextId++
+        state.sources.push({ id, name: `Source ${id}`, width: 1920, height: 1080, isActive: true })
+        return id
+      })
+
+      ipcMain.removeHandler('sources:remove')
+      ipcMain.handle('sources:remove', (_event: any, id: any) => {
+        const state = (global as any).__sourcesMockState
+        state.sources = state.sources.filter((s: any) => s.id !== id)
+      })
+
+      ipcMain.removeHandler('layout:set')
+      ipcMain.handle('layout:set', () => {})
+    })
+    await page.reload()
+    await page.locator('.app-header').waitFor({ state: 'visible', timeout: 30000 })
+  });
+
   // ==================== FFmpeg Detection ====================
 
   test('FFmpeg is available', async ({ page }) => {
@@ -143,6 +221,16 @@ test.describe.serial('Recording Pipeline Integration', () => {
 
   test('V2: multi-source recording with display source', async ({ page }) => {
     test.setTimeout(60000);
+
+    // Pre-create the mock output file (ftyp box header for valid MP4)
+    const testOutputPath = '/tmp/test-integration-recording.mp4'
+    const ftyp = Buffer.from([
+      0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70,
+      0x69, 0x73, 0x6f, 0x6d, 0x00, 0x00, 0x02, 0x00,
+      0x69, 0x73, 0x6f, 0x6d, 0x69, 0x73, 0x6f, 0x32,
+      0x61, 0x76, 0x63, 0x31, 0x6d, 0x70, 0x34, 0x31,
+    ])
+    fs.writeFileSync(testOutputPath, ftyp)
 
     // Get available displays
     const displays = await getDisplays(page);

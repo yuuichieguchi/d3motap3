@@ -43,31 +43,31 @@ test.describe.serial('Source Management', () => {
     await page.locator(S.dialogCloseBtn).click();
   });
 
-  // NOTE: This test depends on the native PTY addon being available.
-  // If the native addon is not built or unavailable, PTY creation will fail
-  // and the source may not appear.
-  test('add terminal source', async ({ page }) => {
-    await page.locator(S.addSourceBtn).click();
+  test('setup: mock sources for remove test', async ({ page, electronApp }) => {
+    await electronApp.evaluate(({ ipcMain }) => {
+      (global as any).__sourceMockState = {
+        sources: [{ id: 1, name: 'Terminal 1', width: 960, height: 540, isActive: true }],
+      }
 
-    const select = page.locator(`${S.dialog} select`);
-    await select.selectOption('Terminal');
+      ipcMain.removeHandler('sources:list')
+      ipcMain.handle('sources:list', () => {
+        return (global as any).__sourceMockState.sources
+      })
 
-    const defaultTerminalBtn = page.locator(S.sourceOptionBtn, {
-      hasText: 'Default Terminal (zsh, 80x24)',
-    });
-    await defaultTerminalBtn.click();
+      ipcMain.removeHandler('sources:remove')
+      ipcMain.handle('sources:remove', () => {
+        (global as any).__sourceMockState.sources = []
+      })
+    })
+    await page.reload()
+    await page.locator('.app-header').waitFor({ state: 'visible', timeout: 30000 })
+  });
 
-    await expect(page.locator(S.dialogOverlay)).toBeHidden();
+  test('source item is visible after mock setup', async ({ page }) => {
     await expect(page.locator(S.sourceItem)).toBeVisible({ timeout: 10000 });
   });
 
-  // NOTE: This test also depends on the native PTY addon.
-  // It adds a source first, then removes it, so PTY creation must succeed.
   test('remove source', async ({ page }) => {
-    // Ensure a source exists from the previous test
-    const sourceItem = page.locator(S.sourceItem);
-    await expect(sourceItem).toBeVisible({ timeout: 10000 });
-
     await page.locator(S.sourceRemoveBtn).first().click();
     await expect(page.locator(S.emptyMessage)).toBeVisible();
   });

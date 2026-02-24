@@ -3,11 +3,7 @@ import { useEditorStore } from '../store/editor'
 import { Timeline } from './Timeline'
 import { TextOverlayEditor } from './TextOverlayEditor'
 
-interface EditorViewProps {
-  onBack: () => void
-}
-
-export function EditorView({ onBack }: EditorViewProps) {
+export function EditorView() {
   const store = useEditorStore()
   const videoRef = useRef<HTMLVideoElement>(null)
   const playbackIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -119,7 +115,6 @@ export function EditorView({ onBack }: EditorViewProps) {
     <div className="editor-view">
       {/* Header */}
       <div className="editor-header">
-        <button className="editor-back-btn" onClick={onBack}>← Back</button>
         <h2>Editor</h2>
         <button
           className="editor-export-btn"
@@ -132,12 +127,14 @@ export function EditorView({ onBack }: EditorViewProps) {
 
       {/* Video Preview */}
       <div className="editor-preview">
-        <video
-          ref={videoRef}
-          className="editor-video"
-          controls={false}
-          muted
-        />
+        {store.project.clips.length > 0 && (
+          <video
+            ref={videoRef}
+            className="editor-video"
+            controls={false}
+            muted
+          />
+        )}
         {store.project.clips.length === 0 && (
           <div className="editor-empty-state">
             <p>No clips added</p>

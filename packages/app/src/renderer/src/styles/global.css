@@ -15,13 +15,13 @@
   --border: rgba(255, 255, 255, 0.3);
 
   /* Glass system */
-  --glass-bg: rgba(255, 255, 255, 0.62);
-  --glass-bg-hover: rgba(255, 255, 255, 0.75);
+  --glass-bg: rgba(255, 255, 255, 0.45);
+  --glass-bg-hover: rgba(255, 255, 255, 0.58);
   --glass-border: rgba(255, 255, 255, 0.5);
   --glass-border-hover: rgba(255, 255, 255, 0.7);
   --glass-blur: blur(24px) saturate(180%);
   --glass-blur-light: blur(16px) saturate(150%);
-  --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.35) 0%, rgba(255,255,255,0.1) 40%, transparent 70%);
+  --glass-shine: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.05) 40%, transparent 70%);
   --glass-shadow: 0 8px 32px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6);
   --glass-shadow-sm: 0 4px 16px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.5);
 
@@ -128,6 +128,10 @@ body {
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+}
+
+.preview-panel h2 {
+  color: rgba(255, 255, 255, 0.8);
 }
 
 .preview-panel {
@@ -350,6 +354,7 @@ body {
   box-shadow: inset 0 1px 8px rgba(220, 53, 69, 0.1);
   color: #dc3545;
   font-size: 12px;
+  margin-top: 12px;
   margin-bottom: 12px;
 }
 
@@ -592,8 +597,8 @@ body {
   border-radius: var(--radius-lg);
   box-shadow: var(--glass-shadow);
   padding: 20px;
-  width: 360px;
-  max-height: 400px;
+  width: 480px;
+  max-height: 500px;
   overflow-y: auto;
   animation: dialog-enter 0.2s ease-out;
 }
@@ -732,7 +737,7 @@ body {
 /* Preview Canvas */
 .preview-canvas-container {
   flex: 1;
-  background-color: rgba(0, 0, 0, 0.04);
+  background-color: rgba(0, 0, 0, 0.15);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -747,7 +752,7 @@ body {
 }
 
 .preview-placeholder {
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
 }
 
@@ -1149,26 +1154,6 @@ body {
   font-size: 16px;
   font-weight: 600;
   margin: 0;
-}
-
-.editor-back-btn {
-  padding: 6px 14px;
-  font-size: 13px;
-  font-weight: 500;
-  background: rgba(255, 255, 255, 0.38);
-  -webkit-backdrop-filter: var(--glass-blur-light);
-  backdrop-filter: var(--glass-blur-light);
-  color: var(--text-primary);
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  transition: var(--transition-glass);
-}
-
-.editor-back-btn:hover {
-  background: rgba(255, 255, 255, 0.52);
-  border-color: rgba(255, 255, 255, 0.7);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
 }
 
 .editor-export-btn {
