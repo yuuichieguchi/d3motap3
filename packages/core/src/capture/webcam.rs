@@ -92,18 +92,21 @@ impl CaptureSource for WebcamCaptureSource {
         let latest_frame = Arc::clone(&self.latest_frame);
         let is_active = Arc::clone(&self.is_active);
         let frame_count = Arc::clone(&self.frame_count);
-        let width = self.width as usize;
-        let height = self.height as usize;
 
         let mut camera = CallbackCamera::new(index, requested, move |buffer| {
             if !is_active.load(Ordering::Relaxed) {
                 return;
             }
 
-            // Get raw RGBA bytes from the buffer
-            let rgba_data = buffer.buffer().to_vec();
+            let resolution = buffer.resolution();
+            let actual_width = resolution.width() as usize;
+            let actual_height = resolution.height() as usize;
 
-            // RGBA -> BGRA conversion: swap R and B channels
+            let rgba_data = match buffer.decode_image::<RgbAFormat>() {
+                Ok(img) => img.into_raw(),
+                Err(_) => return,
+            };
+
             let mut bgra_data = rgba_data;
             for pixel in bgra_data.chunks_exact_mut(4) {
                 pixel.swap(0, 2);
@@ -111,10 +114,10 @@ impl CaptureSource for WebcamCaptureSource {
 
             let frame = Arc::new(CapturedFrame {
                 data: bgra_data,
-                width,
-                height,
-                bytes_per_row: width * 4,
-                timestamp_ms: 0.0, // nokhwa does not provide timestamps
+                width: actual_width,
+                height: actual_height,
+                bytes_per_row: actual_width * 4,
+                timestamp_ms: 0.0,
             });
 
             if let Ok(mut latest) = latest_frame.lock() {
@@ -128,6 +131,11 @@ impl CaptureSource for WebcamCaptureSource {
             .open_stream()
             .map_err(|e| format!("Failed to open webcam stream: {}", e))?;
 
+        if let Ok(res) = camera.resolution() {
+            self.width = res.width();
+            self.height = res.height();
+        }
+
         self.frame_count.store(0, Ordering::Relaxed);
         self.is_active.store(true, Ordering::Relaxed);
         self.camera = Some(camera);
@@ -136,10 +144,8 @@ impl CaptureSource for WebcamCaptureSource {
 
     fn stop(&mut self) -> Result<(), String> {
         self.is_active.store(false, Ordering::Relaxed);
-        if let Some(mut camera) = self.camera.take() {
-            camera
-                .stop_stream()
-                .map_err(|e| format!("Failed to stop webcam: {}", e))?;
+        if let Some(camera) = self.camera.take() {
+            std::thread::spawn(move || drop(camera));
         }
         Ok(())
     }
