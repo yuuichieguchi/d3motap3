@@ -8,7 +8,7 @@
 //! 2. **Legacy global** — `start_capture_impl`, `stop_capture_impl`, etc. use
 //!    module-level statics and are consumed by `recording.rs` / `lib.rs`.
 
-use super::source::CaptureSource;
+use super::source::{CaptureSource, with_registry};
 use super::{CapturedFrame, DisplayInfoData};
 use std::sync::LazyLock;
 use screencapturekit::cv::CVPixelBufferLockFlags;
@@ -54,6 +54,16 @@ impl DisplayCaptureSource {
             )
         })?;
 
+        // Offset width by +2 when another active source already uses the same
+        // dimensions, so the dimension-based frame filter can distinguish them.
+        let adjusted_width = with_registry(|reg| {
+            let has_conflict = reg.active_sources().iter().any(|(_, s)| {
+                let (w, h) = s.dimensions();
+                w == width && h == height
+            });
+            if has_conflict { width.saturating_add(2) } else { width }
+        }).unwrap_or(width);
+
         let source_name = format!(
             "Display {} ({}x{})",
             display_index + 1,
@@ -63,7 +73,7 @@ impl DisplayCaptureSource {
 
         Ok(Self {
             display_id: display.display_id(),
-            width,
+            width: adjusted_width,
             height,
             source_name,
             latest_frame: Arc::new(Mutex::new(None)),
@@ -108,6 +118,8 @@ impl CaptureSource for DisplayCaptureSource {
             latest_frame: Arc::clone(&self.latest_frame),
             is_active: Arc::clone(&self.is_active),
             frame_count: Arc::clone(&self.frame_count),
+            expected_width: self.width as usize,
+            expected_height: self.height as usize,
         };
 
         let mut stream = SCStream::new(&filter, &config);
@@ -168,6 +180,8 @@ struct InstanceFrameHandler {
     latest_frame: Arc<Mutex<Option<Arc<CapturedFrame>>>>,
     is_active: Arc<AtomicBool>,
     frame_count: Arc<AtomicU64>,
+    expected_width: usize,
+    expected_height: usize,
 }
 
 impl SCStreamOutputTrait for InstanceFrameHandler {
@@ -181,6 +195,13 @@ impl SCStreamOutputTrait for InstanceFrameHandler {
 
         if let Some(pixel_buffer) = sample.image_buffer() {
             if let Ok(guard) = pixel_buffer.lock(CVPixelBufferLockFlags::READ_ONLY) {
+                // Filter frames by expected dimensions to avoid cross-stream
+                // contamination — the screencapturekit crate broadcasts all
+                // frames to all registered handlers.
+                if guard.width() != self.expected_width || guard.height() != self.expected_height {
+                    return;
+                }
+
                 let timestamp_ms = sample
                     .presentation_timestamp()
                     .as_seconds()
