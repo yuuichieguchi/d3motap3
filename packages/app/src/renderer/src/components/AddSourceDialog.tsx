@@ -37,6 +37,7 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
   }, [open, sourceType])
 
   useEffect(() => {
+    if (!window.api?.on) return
     const unsubscribe = window.api.on('region:selected', (...args: unknown[]) => {
       const rect = args[0] as { x: number; y: number; width: number; height: number }
       setRegionX(rect.x)

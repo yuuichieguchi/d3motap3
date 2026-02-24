@@ -130,6 +130,10 @@ body {
   letter-spacing: 0.5px;
 }
 
+.preview-panel h2 {
+  color: rgba(255, 255, 255, 0.8);
+}
+
 .preview-panel {
   flex: 1;
   padding: 16px;
@@ -733,7 +737,7 @@ body {
 /* Preview Canvas */
 .preview-canvas-container {
   flex: 1;
-  background-color: rgba(0, 0, 0, 0.04);
+  background-color: rgba(0, 0, 0, 0.15);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
@@ -748,7 +752,7 @@ body {
 }
 
 .preview-placeholder {
-  color: var(--text-secondary);
+  color: rgba(255, 255, 255, 0.7);
   font-size: 14px;
 }
 
