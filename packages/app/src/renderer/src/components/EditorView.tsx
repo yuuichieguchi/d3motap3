@@ -6,6 +6,7 @@ import { TextOverlayEditor } from './TextOverlayEditor'
 export function EditorView() {
   const store = useEditorStore()
   const videoRef = useRef<HTMLVideoElement>(null)
+  const currentSourcePathRef = useRef<string | null>(null)
   const playbackIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Get the clip at the current playback position
@@ -31,11 +32,13 @@ export function EditorView() {
     if (!videoRef.current) return
     const result = getClipAtTime(store.currentTimeMs)
     if (result) {
-      // Check if we need to change the source
-      if (videoRef.current.src !== result.clip.sourcePath) {
-        videoRef.current.src = result.clip.sourcePath
+      if (currentSourcePathRef.current !== result.clip.sourcePath) {
+        currentSourcePathRef.current = result.clip.sourcePath
+        videoRef.current.src = `media://local${result.clip.sourcePath}`
       }
       videoRef.current.currentTime = result.localTime / 1000
+    } else {
+      currentSourcePathRef.current = null
     }
   }, [store.currentTimeMs, getClipAtTime])
 
@@ -43,13 +46,14 @@ export function EditorView() {
   useEffect(() => {
     if (store.isPlaying) {
       playbackIntervalRef.current = setInterval(() => {
-        const totalDuration = store.totalDuration()
-        const newTime = store.currentTimeMs + 33 // ~30fps playback
+        const state = useEditorStore.getState()
+        const totalDuration = state.totalDuration()
+        const newTime = state.currentTimeMs + 33 // ~30fps playback
         if (newTime >= totalDuration) {
-          store.setCurrentTime(0)
-          store.setPlaying(false)
+          state.setCurrentTime(0)
+          state.setPlaying(false)
         } else {
-          store.setCurrentTime(newTime)
+          state.setCurrentTime(newTime)
         }
       }, 33)
     } else {

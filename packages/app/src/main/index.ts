@@ -1,10 +1,16 @@
-import { app, BrowserWindow, screen } from 'electron'
+import { app, BrowserWindow, screen, protocol, net } from 'electron'
 import { join } from 'path'
+import { pathToFileURL } from 'url'
 import { registerIpcHandlers } from './ipc-handlers'
 
 const is = {
   dev: process.env.NODE_ENV === 'development' || !app.isPackaged
 }
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'media',
+  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+}])
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -99,6 +105,14 @@ export function getMainWindow(): BrowserWindow | null {
 }
 
 app.whenReady().then(() => {
+  protocol.handle('media', (request) => {
+    const filePath = decodeURIComponent(new URL(request.url).pathname)
+    const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
+    if (!['.mp4', '.mov', '.webm', '.avi', '.mkv'].includes(ext)) {
+      return new Response('Forbidden', { status: 403 })
+    }
+    return net.fetch(pathToFileURL(filePath).toString())
+  })
   registerIpcHandlers()
   mainWindow = createWindow()
 

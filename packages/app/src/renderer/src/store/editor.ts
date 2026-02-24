@@ -102,7 +102,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
       // Generate thumbnails in background
       try {
-        const thumbBuffers = await window.api.invoke('editor:thumbnails', sourcePath, 10, 160) as ArrayBuffer[]
+        const thumbWidth = Math.min(Math.round(320 * window.devicePixelRatio), 640)
+        const thumbBuffers = await window.api.invoke('editor:thumbnails', sourcePath, 10, thumbWidth) as ArrayBuffer[]
         const thumbUrls = thumbBuffers.map((buf) => {
           const blob = new Blob([buf], { type: 'image/jpeg' })
           return URL.createObjectURL(blob)
