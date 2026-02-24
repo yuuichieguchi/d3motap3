@@ -9,6 +9,7 @@ mod script;
 mod sync;
 mod mobile;
 mod ai;
+mod editor;
 
 use capture::CaptureSource;
 
@@ -560,4 +561,48 @@ pub fn clear_caption() -> napi::Result<()> {
         .map_err(|e| napi::Error::from_reason(format!("Caption lock error: {}", e)))?;
     *guard = None;
     Ok(())
+}
+
+// -------------------------------------------------------------------------
+// Video Editor
+// -------------------------------------------------------------------------
+
+#[napi(object)]
+pub struct VideoMetadataJs {
+    pub duration_ms: i64,
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+    pub codec: String,
+}
+
+#[napi]
+pub fn editor_probe(path: String) -> napi::Result<VideoMetadataJs> {
+    editor::editor_probe(path)
+        .map(|m| VideoMetadataJs {
+            duration_ms: m.duration_ms as i64,
+            width: m.width,
+            height: m.height,
+            fps: m.fps,
+            codec: m.codec,
+        })
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn editor_thumbnails(path: String, count: u32, width: u32) -> napi::Result<Vec<napi::bindgen_prelude::Buffer>> {
+    editor::editor_thumbnails(path, count, width)
+        .map(|thumbs| thumbs.into_iter().map(|t| t.into()).collect())
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn editor_export(project_json: String, output_path: String) -> napi::Result<()> {
+    editor::editor_export(project_json, output_path)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn editor_export_status() -> String {
+    editor::editor_export_status()
 }
