@@ -19,3 +19,15 @@ export interface RecordingProgress {
   elapsedMs: number
   frameCount: number
 }
+
+export interface AudioConfig {
+  captureSystemAudio: boolean
+  captureMicrophone: boolean
+  microphoneDeviceId?: string
+}
+
+export interface AudioDeviceInfo {
+  id: string
+  name: string
+  isDefault: boolean
+}

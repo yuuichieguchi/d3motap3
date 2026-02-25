@@ -55,6 +55,13 @@ pub struct EncoderConfig {
     /// actual bytes-per-row so that padding is stripped before writing.
     /// If `None`, the stride is assumed to be `width * 4` (tightly packed).
     pub bytes_per_row: Option<usize>,
+    /// Path to the named FIFO containing raw f32le audio data.
+    /// When `None`, no audio track is produced.
+    pub audio_fifo_path: Option<std::path::PathBuf>,
+    /// Audio sample rate in Hz (e.g. 48000). Only used when audio_fifo_path is Some.
+    pub audio_sample_rate: u32,
+    /// Audio channel count (e.g. 2 for stereo). Only used when audio_fifo_path is Some.
+    pub audio_channel_count: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +129,7 @@ impl FfmpegEncoder {
         // -- Global flags --
         push_args(&mut args, &["-y", "-hide_banner", "-loglevel", "error"]);
 
-        // -- Input specification --
+        // -- Video input specification --
         push_args(&mut args, &[
             "-f", "rawvideo",
             "-pixel_format", "bgra",
@@ -130,6 +137,26 @@ impl FfmpegEncoder {
             "-framerate", &fps_str,
             "-i", "pipe:0",
         ]);
+
+        // -- Audio input (from named FIFO) --
+        let has_audio = config.audio_fifo_path.is_some();
+        if let Some(ref fifo_path) = config.audio_fifo_path {
+            let fifo_str = fifo_path.to_str()
+                .ok_or_else(|| "Audio FIFO path contains invalid UTF-8".to_string())?;
+            let sr = config.audio_sample_rate.to_string();
+            let ch = config.audio_channel_count.to_string();
+            push_args(&mut args, &[
+                "-f", "f32le",
+                "-ar", &sr,
+                "-ac", &ch,
+                "-i", fifo_str,
+            ]);
+        }
+
+        // -- Stream mapping (required when multiple inputs) --
+        if has_audio {
+            push_args(&mut args, &["-map", "0:v", "-map", "1:a"]);
+        }
 
         // -- Output codec/format-specific flags --
         match config.format {
@@ -146,6 +173,9 @@ impl FfmpegEncoder {
                     "-preset", preset,
                     "-movflags", "+faststart",
                 ]);
+                if has_audio {
+                    push_args(&mut args, &["-c:a", "aac", "-b:a", "192k"]);
+                }
             }
             OutputFormat::Gif => {
                 // Two-pass palettegen does not work with pipe input, so we
@@ -171,7 +201,15 @@ impl FfmpegEncoder {
                     "-crf", crf,
                     "-b:v", "0",
                 ]);
+                if has_audio {
+                    push_args(&mut args, &["-c:a", "libopus", "-b:a", "128k"]);
+                }
             }
+        }
+
+        // -- Shortest flag (stop when the shorter stream ends) --
+        if has_audio {
+            push_args(&mut args, &["-shortest"]);
         }
 
         // -- Output path --

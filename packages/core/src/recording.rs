@@ -9,6 +9,7 @@ use crate::capture;
 use crate::capture::source::{with_registry, SourceId};
 use crate::compositor::{Compositor, Layout};
 use crate::encoder::{EncoderConfig, EncoderQuality, FfmpegEncoder, OutputFormat};
+use crate::audio;
 use crate::script::caption::CaptionRenderer;
 use crate::script::types::CaptionPosition;
 use crate::sync::SourceBufferManager;
@@ -120,6 +121,9 @@ pub fn start_recording_impl(config: RecordingConfig) -> Result<(), String> {
             format,
             quality,
             bytes_per_row: Some(first_frame.bytes_per_row),
+            audio_fifo_path: None,
+            audio_sample_rate: 48000,
+            audio_channel_count: 2,
         };
 
         let mut encoder = FfmpegEncoder::new(encoder_config)?;
@@ -254,6 +258,9 @@ pub struct RecordingConfigV2 {
     pub output_path: String,
     pub format: String,
     pub quality: String,
+    pub capture_system_audio: bool,
+    pub capture_microphone: bool,
+    pub microphone_device_id: Option<String>,
 }
 
 static RECORDING_V2_STATE: LazyLock<Mutex<Option<RecordingHandleV2>>> =
@@ -264,6 +271,8 @@ struct RecordingHandleV2 {
     collector_thread: Option<thread::JoinHandle<()>>,
     encoder_thread: Option<thread::JoinHandle<Result<RecordingResult, String>>>,
     start_time: Instant,
+    #[cfg(target_os = "macos")]
+    audio_capture: Option<audio::macos::AudioCaptureStream>,
 }
 
 pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> {
@@ -306,6 +315,45 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
     let height = config.output_height;
     let fps = config.fps;
     let output_path = config.output_path.clone();
+
+    // Audio capture setup
+    #[cfg(target_os = "macos")]
+    let is_audio_enabled = (config.capture_system_audio || config.capture_microphone)
+        && format != OutputFormat::Gif;
+
+    #[cfg(target_os = "macos")]
+    let audio_fifo_path = if is_audio_enabled {
+        let output = std::path::PathBuf::from(&config.output_path);
+        Some(output.with_extension("audio_fifo"))
+    } else {
+        None
+    };
+    #[cfg(not(target_os = "macos"))]
+    let audio_fifo_path: Option<std::path::PathBuf> = None;
+
+    #[cfg(target_os = "macos")]
+    let mut audio_capture = None;
+    #[cfg(target_os = "macos")]
+    if let Some(ref fifo_path) = audio_fifo_path {
+        // Clean up any leftover FIFO from a previous crash
+        let _ = std::fs::remove_file(fifo_path);
+
+        let audio_config = audio::AudioConfig {
+            capture_system_audio: config.capture_system_audio,
+            capture_microphone: config.capture_microphone,
+            microphone_device_id: config.microphone_device_id.clone(),
+            sample_rate: 48000,
+            channel_count: 2,
+        };
+        audio_capture = Some(
+            audio::macos::AudioCaptureStream::start(&audio_config, fifo_path)
+                .inspect_err(|_| {
+                    RECORDING_V2_ACTIVE.store(false, Ordering::Relaxed);
+                })?
+        );
+    }
+
+    let audio_fifo_path_clone = audio_fifo_path.clone();
 
     // Shared buffer manager between collector and encoder threads
     let buffer_manager = Arc::new(Mutex::new(SourceBufferManager::new(fps)));
@@ -369,6 +417,9 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
             format,
             quality,
             bytes_per_row: None, // Compositor output is tightly packed
+            audio_fifo_path: audio_fifo_path_clone,
+            audio_sample_rate: 48000,
+            audio_channel_count: 2,
         };
 
         let mut encoder = FfmpegEncoder::new(encoder_config)?;
@@ -451,6 +502,8 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         collector_thread: Some(collector_thread),
         encoder_thread: Some(encoder_thread),
         start_time,
+        #[cfg(target_os = "macos")]
+        audio_capture,
     });
 
     Ok(())
@@ -481,9 +534,17 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
         .take()
         .ok_or_else(|| "No encoder thread".to_string())?;
 
-    encoder
+    let result = encoder
         .join()
-        .map_err(|_| "Encoder thread panicked".to_string())?
+        .map_err(|_| "Encoder thread panicked".to_string())?;
+
+    // Stop audio capture after encoder has finished
+    #[cfg(target_os = "macos")]
+    if let Some(mut ac) = handle.audio_capture.take() {
+        let _ = ac.stop();
+    }
+
+    result
 }
 
 pub fn get_recording_v2_elapsed_ms() -> u64 {

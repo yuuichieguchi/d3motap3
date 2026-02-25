@@ -80,6 +80,11 @@ export function registerIpcHandlers(): void {
     return nativeBridge.isAdbAvailable()
   })
 
+  // Audio devices
+  ipcMain.handle('audio:list-input-devices', () => {
+    return nativeBridge.listAudioInputDevices()
+  })
+
   // Layout
   ipcMain.handle('layout:set', (_event, layoutJson: string) => {
     return nativeBridge.setLayout(layoutJson)
@@ -98,6 +103,9 @@ export function registerIpcHandlers(): void {
     format: string
     quality: string
     outputDir?: string
+    captureSystemAudio?: boolean
+    captureMicrophone?: boolean
+    microphoneDeviceId?: string
   }) => {
     return nativeBridge.startRecordingV2(config)
   })

@@ -10,6 +10,7 @@ mod sync;
 mod mobile;
 mod ai;
 mod editor;
+mod audio;
 
 use capture::CaptureSource;
 
@@ -380,6 +381,9 @@ pub fn start_recording_v2(
     output_path: String,
     format: String,
     quality: String,
+    capture_system_audio: Option<bool>,
+    capture_microphone: Option<bool>,
+    microphone_device_id: Option<String>,
 ) -> napi::Result<()> {
     recording::start_recording_v2_impl(recording::RecordingConfigV2 {
         output_width,
@@ -388,6 +392,9 @@ pub fn start_recording_v2(
         output_path,
         format,
         quality,
+        capture_system_audio: capture_system_audio.unwrap_or(false),
+        capture_microphone: capture_microphone.unwrap_or(false),
+        microphone_device_id,
     })
     .map_err(|e| napi::Error::from_reason(e))
 }
@@ -465,6 +472,29 @@ pub fn list_ios_devices() -> napi::Result<Vec<IosDeviceJs>> {
                 .collect()
         })
         .map_err(|e| napi::Error::from_reason(e))
+}
+
+// -------------------------------------------------------------------------
+// Audio Devices
+// -------------------------------------------------------------------------
+
+#[napi(object)]
+pub struct AudioDeviceInfoJs {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[napi]
+pub fn list_audio_input_devices() -> Vec<AudioDeviceInfoJs> {
+    audio::list_audio_input_devices()
+        .into_iter()
+        .map(|d| AudioDeviceInfoJs {
+            id: d.id,
+            name: d.name,
+            is_default: d.is_default,
+        })
+        .collect()
 }
 
 // -------------------------------------------------------------------------

@@ -29,6 +29,10 @@ interface RecordingState {
   outputDir: string
   ffmpegAvailable: boolean | null
   error: string | null
+  captureSystemAudio: boolean
+  captureMicrophone: boolean
+  microphoneDeviceId: string
+  audioDevices: Array<{ id: string; name: string; isDefault: boolean }>
 
   setStatus: (status: RecordingStatus) => void
   setElapsedMs: (ms: number) => void
@@ -42,6 +46,10 @@ interface RecordingState {
   setOutputDir: (dir: string) => void
   setFfmpegAvailable: (available: boolean) => void
   setError: (error: string | null) => void
+  setCaptureSystemAudio: (v: boolean) => void
+  setCaptureMicrophone: (v: boolean) => void
+  setMicrophoneDeviceId: (id: string) => void
+  setAudioDevices: (devices: Array<{ id: string; name: string; isDefault: boolean }>) => void
   reset: () => void
 }
 
@@ -59,6 +67,10 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   outputDir: '',
   ffmpegAvailable: null,
   error: null,
+  captureSystemAudio: false,
+  captureMicrophone: false,
+  microphoneDeviceId: '',
+  audioDevices: [],
 
   setStatus: (status) => set({ status, error: null }),
   setElapsedMs: (elapsedMs) => set({ elapsedMs }),
@@ -72,6 +84,10 @@ export const useRecordingStore = create<RecordingState>((set) => ({
   setOutputDir: (outputDir) => set({ outputDir }),
   setFfmpegAvailable: (ffmpegAvailable) => set({ ffmpegAvailable }),
   setError: (error) => set({ error }),
+  setCaptureSystemAudio: (captureSystemAudio) => set({ captureSystemAudio }),
+  setCaptureMicrophone: (captureMicrophone) => set({ captureMicrophone }),
+  setMicrophoneDeviceId: (microphoneDeviceId) => set({ microphoneDeviceId }),
+  setAudioDevices: (audioDevices) => set({ audioDevices }),
   reset: () => set({
     status: 'idle',
     elapsedMs: 0,

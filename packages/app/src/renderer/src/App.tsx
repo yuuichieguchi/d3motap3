@@ -36,6 +36,10 @@ export function App() {
           const displays = await window.api.invoke('recording:list-displays') as Array<{ id: number; width: number; height: number }>
           store.setDisplays(displays)
         }
+
+        window.api.invoke('audio:list-input-devices').then((devices: Array<{ id: string; name: string; isDefault: boolean }>) => {
+          store.setAudioDevices(devices)
+        }).catch(() => {})
       } catch (err) {
         store.setError(err instanceof Error ? err.message : String(err))
       }
@@ -78,6 +82,9 @@ export function App() {
         format: store.format,
         quality: store.quality,
         outputDir: store.outputDir || undefined,
+        captureSystemAudio: store.captureSystemAudio,
+        captureMicrophone: store.captureMicrophone,
+        microphoneDeviceId: store.microphoneDeviceId || undefined,
       }) as string
 
       store.setOutputPath(outputPath)
@@ -205,6 +212,49 @@ export function App() {
                 <option value="high">High</option>
               </select>
             </div>
+
+            {/* Audio Capture (not available for GIF) */}
+            {store.format !== 'gif' && (
+              <>
+                <div className="control-group">
+                  <label>System Audio</label>
+                  <input
+                    type="checkbox"
+                    checked={store.captureSystemAudio}
+                    onChange={(e) => store.setCaptureSystemAudio(e.target.checked)}
+                    disabled={isRecording || isProcessing}
+                  />
+                </div>
+
+                <div className="control-group">
+                  <label>Microphone</label>
+                  <input
+                    type="checkbox"
+                    checked={store.captureMicrophone}
+                    onChange={(e) => store.setCaptureMicrophone(e.target.checked)}
+                    disabled={isRecording || isProcessing}
+                  />
+                </div>
+
+                {store.captureMicrophone && store.audioDevices.length > 1 && (
+                  <div className="control-group">
+                    <label>Mic Device</label>
+                    <select
+                      value={store.microphoneDeviceId}
+                      onChange={(e) => store.setMicrophoneDeviceId(e.target.value)}
+                      disabled={isRecording || isProcessing}
+                    >
+                      <option value="">Default</option>
+                      {store.audioDevices.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name}{d.isDefault ? ' (Default)' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+              </>
+            )}
 
             {/* Output Directory */}
             <div className="output-dir-section">
