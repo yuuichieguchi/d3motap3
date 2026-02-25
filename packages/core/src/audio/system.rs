@@ -19,6 +19,10 @@ use std::sync::{Arc, Mutex};
 pub struct AudioTempFiles {
     pub system_audio_path: Option<PathBuf>,
     pub mic_audio_path: Option<PathBuf>,
+    /// Actual sample rate detected from the first system audio buffer.
+    pub system_sample_rate: Option<u32>,
+    /// Actual sample rate detected from the first mic audio buffer.
+    pub mic_sample_rate: Option<u32>,
 }
 
 impl AudioTempFiles {
@@ -68,6 +72,7 @@ struct AudioFileHandler {
     writer: Arc<Mutex<BufWriter<File>>>,
     write_error: Arc<AtomicBool>,
     format_logged: AtomicBool,
+    detected_sample_rate: Arc<Mutex<Option<f64>>>,
 }
 
 impl SCStreamOutputTrait for AudioFileHandler {
@@ -94,6 +99,20 @@ impl SCStreamOutputTrait for AudioFileHandler {
                 "[audio] {:?} format: float={} bits={} channels={} bytes_per_frame={}",
                 of_type, is_float, bits, channels, bytes_per_frame
             );
+        }
+
+        // Detect actual sample rate from the first sample buffer
+        {
+            let mut rate = self.detected_sample_rate.lock().unwrap_or_else(|e| e.into_inner());
+            if rate.is_none() {
+                if let Some(fd) = sample.format_description() {
+                    if let Some(sr) = fd.audio_sample_rate() {
+                        #[cfg(debug_assertions)]
+                        eprintln!("[audio] {:?} detected sample rate: {} Hz", of_type, sr);
+                        *rate = Some(sr);
+                    }
+                }
+            }
         }
 
         if let Some(audio_buffers) = sample.audio_buffer_list() {
@@ -175,6 +194,8 @@ pub struct AudioRecorder {
     mic_audio_path: Option<PathBuf>,
     system_write_error: Arc<AtomicBool>,
     mic_write_error: Arc<AtomicBool>,
+    system_detected_sample_rate: Arc<Mutex<Option<f64>>>,
+    mic_detected_sample_rate: Arc<Mutex<Option<f64>>>,
 }
 
 // SCStream is not marked Send/Sync by the crate.  We guard access through
@@ -228,6 +249,8 @@ impl AudioRecorder {
 
         let system_write_error = Arc::new(AtomicBool::new(false));
         let mic_write_error = Arc::new(AtomicBool::new(false));
+        let system_detected_sample_rate = Arc::new(Mutex::new(None));
+        let mic_detected_sample_rate = Arc::new(Mutex::new(None));
 
         // -- system audio output handler --
         let mut system_writer: Option<Arc<Mutex<BufWriter<File>>>> = None;
@@ -242,6 +265,7 @@ impl AudioRecorder {
                 writer: Arc::clone(&writer),
                 write_error: Arc::clone(&system_write_error),
                 format_logged: AtomicBool::new(false),
+                detected_sample_rate: Arc::clone(&system_detected_sample_rate),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Audio);
             system_writer = Some(writer);
@@ -261,6 +285,7 @@ impl AudioRecorder {
                 writer: Arc::clone(&writer),
                 write_error: Arc::clone(&mic_write_error),
                 format_logged: AtomicBool::new(false),
+                detected_sample_rate: Arc::clone(&mic_detected_sample_rate),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Microphone);
             mic_writer = Some(writer);
@@ -279,6 +304,8 @@ impl AudioRecorder {
             mic_audio_path,
             system_write_error,
             mic_write_error,
+            system_detected_sample_rate,
+            mic_detected_sample_rate,
         })
     }
 
@@ -318,6 +345,18 @@ impl AudioRecorder {
         Ok(AudioTempFiles {
             system_audio_path: self.system_audio_path,
             mic_audio_path: self.mic_audio_path,
+            system_sample_rate: self
+                .system_detected_sample_rate
+                .lock()
+                .ok()
+                .and_then(|r| *r)
+                .map(|r| r as u32),
+            mic_sample_rate: self
+                .mic_detected_sample_rate
+                .lock()
+                .ok()
+                .and_then(|r| *r)
+                .map(|r| r as u32),
         })
     }
 }
@@ -423,6 +462,8 @@ mod tests {
         let no_audio = AudioTempFiles {
             system_audio_path: None,
             mic_audio_path: None,
+            system_sample_rate: None,
+            mic_sample_rate: None,
         };
         assert!(!no_audio.has_audio());
 
@@ -430,6 +471,8 @@ mod tests {
         let nonexistent = AudioTempFiles {
             system_audio_path: Some(PathBuf::from("/tmp/nonexistent_sys.pcm")),
             mic_audio_path: None,
+            system_sample_rate: None,
+            mic_sample_rate: None,
         };
         assert!(!nonexistent.has_audio());
 
@@ -445,18 +488,24 @@ mod tests {
         let system_only = AudioTempFiles {
             system_audio_path: Some(sys_path.clone()),
             mic_audio_path: None,
+            system_sample_rate: None,
+            mic_sample_rate: None,
         };
         assert!(system_only.has_audio());
 
         let mic_only = AudioTempFiles {
             system_audio_path: None,
             mic_audio_path: Some(mic_path.clone()),
+            system_sample_rate: None,
+            mic_sample_rate: None,
         };
         assert!(mic_only.has_audio());
 
         let both = AudioTempFiles {
             system_audio_path: Some(sys_path.clone()),
             mic_audio_path: Some(mic_path.clone()),
+            system_sample_rate: None,
+            mic_sample_rate: None,
         };
         assert!(both.has_audio());
 
@@ -465,6 +514,8 @@ mod tests {
         let empty_file = AudioTempFiles {
             system_audio_path: Some(sys_path.clone()),
             mic_audio_path: None,
+            system_sample_rate: None,
+            mic_sample_rate: None,
         };
         assert!(!empty_file.has_audio());
 

@@ -373,7 +373,8 @@ pub fn mux_audio_video(
     video_path: &std::path::Path,
     system_audio_path: Option<&std::path::Path>,
     mic_audio_path: Option<&std::path::Path>,
-    sample_rate: u32,
+    system_sample_rate: u32,
+    mic_sample_rate: u32,
     system_channel_count: u32,
     mic_channel_count: u32,
     format: OutputFormat,
@@ -388,6 +389,12 @@ pub fn mux_audio_video(
     if mic_audio_path.is_some() && mic_channel_count == 0 {
         return Err("mic_channel_count must be > 0 when mic audio is provided".to_string());
     }
+    if system_audio_path.is_some() && system_sample_rate == 0 {
+        return Err("system_sample_rate must be > 0 when system audio is provided".to_string());
+    }
+    if mic_audio_path.is_some() && mic_sample_rate == 0 {
+        return Err("mic_sample_rate must be > 0 when mic audio is provided".to_string());
+    }
 
     let ffmpeg_path = find_ffmpeg()?;
 
@@ -398,7 +405,8 @@ pub fn mux_audio_video(
         .to_str()
         .ok_or_else(|| "path contains invalid UTF-8".to_string())?;
 
-    let sample_rate_str = sample_rate.to_string();
+    let system_sample_rate_str = system_sample_rate.to_string();
+    let mic_sample_rate_str = mic_sample_rate.to_string();
     let system_channel_count_str = system_channel_count.to_string();
     let mic_channel_count_str = mic_channel_count.to_string();
 
@@ -418,7 +426,7 @@ pub fn mux_audio_video(
             .ok_or_else(|| "path contains invalid UTF-8".to_string())?;
         push_args(&mut args, &[
             "-f", "f32le",
-            "-ar", &sample_rate_str,
+            "-ar", &system_sample_rate_str,
             "-ac", &system_channel_count_str,
             "-i", path_str,
         ]);
@@ -432,7 +440,7 @@ pub fn mux_audio_video(
             .ok_or_else(|| "path contains invalid UTF-8".to_string())?;
         push_args(&mut args, &[
             "-f", "f32le",
-            "-ar", &sample_rate_str,
+            "-ar", &mic_sample_rate_str,
             "-ac", &mic_channel_count_str,
             "-i", path_str,
         ]);

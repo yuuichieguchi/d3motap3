@@ -278,7 +278,7 @@ struct RecordingHandleV2 {
     encoder_thread: Option<thread::JoinHandle<Result<RecordingResult, String>>>,
     start_time: Instant,
     audio_recorder: Option<audio::system::AudioRecorder>,
-    audio_sample_rate: u32,
+    audio_config_sample_rate: u32,
     audio_channel_count: u32,
     audio_mic_channel_count: u32,
     final_output_path: PathBuf,
@@ -513,7 +513,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         encoder_thread: Some(encoder_thread),
         start_time,
         audio_recorder,
-        audio_sample_rate: audio_config.sample_rate,
+        audio_config_sample_rate: audio_config.sample_rate,
         audio_channel_count: audio_config.channel_count,
         audio_mic_channel_count: if audio_config.capture_system_audio {
             audio_config.channel_count
@@ -583,11 +583,20 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 _ => crate::encoder::OutputFormat::Mp4,
             };
 
+            // Use detected sample rates when available, fall back to config rate
+            let system_sr = audio_temp
+                .system_sample_rate
+                .unwrap_or(handle.audio_config_sample_rate);
+            let mic_sr = audio_temp
+                .mic_sample_rate
+                .unwrap_or(handle.audio_config_sample_rate);
+
             let mux_result = crate::encoder::mux_audio_video(
                 video_temp_path,
                 audio_temp.system_audio_path_if_nonempty().map(|p| p.as_path()),
                 audio_temp.mic_audio_path_if_nonempty().map(|p| p.as_path()),
-                handle.audio_sample_rate,
+                system_sr,
+                mic_sr,
                 handle.audio_channel_count,
                 handle.audio_mic_channel_count,
                 format,

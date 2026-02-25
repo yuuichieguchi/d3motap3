@@ -148,7 +148,6 @@ export function EditorView() {
             ref={videoRef}
             className="editor-video"
             controls={false}
-            muted
           />
         )}
         {store.project.clips.length === 0 && (
