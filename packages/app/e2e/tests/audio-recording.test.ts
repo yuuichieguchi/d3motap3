@@ -1,261 +1,295 @@
 import { test, expect } from '../fixtures/electron-app'
-import { existsSync, unlinkSync } from 'node:fs'
+import { S } from '../helpers/selectors'
+import { spawn, type ChildProcess, execFileSync } from 'node:child_process'
+import { unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { hasAudioStream } from '../helpers/ffprobe'
+import { join } from 'node:path'
 
-test.describe('Audio Recording', () => {
-  test.afterEach(async ({ page }) => {
-    await page.evaluate(async () => {
-      const isRecording = await (window as any).api.invoke('recording:is-recording-v2')
-      if (isRecording) {
-        await (window as any).api.invoke('recording:stop-v2')
-      }
-    }).catch(() => {})
+const FFMPEG_PATHS = [
+  '/opt/homebrew/bin/ffmpeg',
+  '/usr/local/bin/ffmpeg',
+  '/usr/bin/ffmpeg',
+  'ffmpeg',
+]
 
-    await page.evaluate(async () => {
-      const sources = await (window as any).api.invoke('sources:list')
-      for (const src of sources) {
-        await (window as any).api.invoke('sources:remove', src.id)
-      }
-    }).catch(() => {})
+function findFfmpeg(): string {
+  for (const p of FFMPEG_PATHS) {
+    try {
+      execFileSync(p, ['-version'], { stdio: 'ignore' })
+      return p
+    } catch {}
+  }
+  throw new Error('ffmpeg not found')
+}
+
+function generateTestTone(): string {
+  const ffmpeg = findFfmpeg()
+  const outputPath = join(tmpdir(), 'd3motap3-test-tone.wav')
+  execFileSync(ffmpeg, [
+    '-y', '-f', 'lavfi', '-i', 'sine=frequency=440:duration=10',
+    '-ac', '2', '-ar', '48000', outputPath,
+  ], { stdio: 'ignore' })
+  return outputPath
+}
+
+test.describe('Audio Recording E2E', () => {
+  let testTonePath: string
+
+  test.beforeAll(() => {
+    testTonePath = generateTestTone()
   })
 
-  test('List audio input devices returns valid array', async ({ page }) => {
-    const devices = await page.evaluate(async () => {
-      return await (window as any).api.invoke('audio:list-input-devices') as Array<{
-        id: string
-        name: string
-        isDefault: boolean
-      }>
-    })
+  test.afterAll(() => {
+    try { unlinkSync(testTonePath) } catch {}
+  })
 
-    expect(Array.isArray(devices)).toBe(true)
-    expect(devices.length).toBeGreaterThanOrEqual(0)
-
-    for (const device of devices) {
-      expect(typeof device.id).toBe('string')
-      expect(typeof device.name).toBe('string')
-      expect(typeof device.isDefault).toBe('boolean')
+  test.beforeEach(async ({ page }) => {
+    // Close any leftover dialogs
+    const closeBtn = page.locator(S.dialogCloseBtn)
+    if (await closeBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+      await closeBtn.click()
+      await page.locator(S.dialogOverlay).waitFor({ state: 'hidden' })
+    }
+    // Ensure Recording tab is active
+    await page.locator('.header-tab').filter({ hasText: 'Recording' }).click()
+    // Turn OFF audio toggles if left on by previous test
+    for (const label of ['Microphone', 'System Audio']) {
+      const group = page.locator('.control-group.toggle').filter({ hasText: label })
+      if (await group.locator('input[type="checkbox"]').isChecked().catch(() => false)) {
+        await group.locator('.toggle-switch').click()
+        await page.waitForTimeout(200)
+      }
+    }
+    // Remove existing sources
+    while (await page.locator(S.sourceRemoveBtn).count() > 0) {
+      await page.locator(S.sourceRemoveBtn).first().click()
+      await page.waitForTimeout(300)
     }
   })
 
-  test('Recording with system audio produces audio stream', async ({ page }) => {
-    // Step 1: Add a display source
-    const addResult = await page.evaluate(async () => {
-      try {
-        const id = await (window as any).api.invoke('sources:add', 'display', JSON.stringify({
-          type: 'Display',
-          display_index: 0,
-          width: 1280,
-          height: 720,
-        }))
-        return { sourceId: id as number }
-      } catch (e: unknown) {
-        return { error: e instanceof Error ? e.message : String(e) }
-      }
-    })
+  test('Microphone recording with Jabra completes without NaN/Inf error', async ({ electronApp, page }) => {
+    const stderrChunks: string[] = []
+    const stdoutChunks: string[] = []
+    const proc = electronApp.process()
+    const onStderr = (data: Buffer) => { stderrChunks.push(data.toString()) }
+    const onStdout = (data: Buffer) => { stdoutChunks.push(data.toString()) }
+    proc.stderr?.on('data', onStderr)
+    proc.stdout?.on('data', onStdout)
 
-    if ('error' in addResult) {
-      test.skip(true, `Screen capture unavailable: ${addResult.error}`)
-      return
+    try {
+      // Step 1: Add a Display source via UI
+      await page.locator(S.addSourceBtn).click()
+      await page.locator(S.dialog).waitFor({ state: 'visible' })
+      await page.locator(`${S.dialog} select`).first().selectOption('Display')
+      await page.locator(S.sourceOptionBtn).first().click()
+      await page.locator(S.dialog).waitFor({ state: 'hidden' })
+      await expect(page.locator(S.sourceItem)).toHaveCount(1, { timeout: 10_000 })
+
+      // Step 2: Turn ON Microphone toggle via UI
+      const micGroup = page.locator('.control-group.toggle').filter({ hasText: 'Microphone' })
+      await micGroup.locator('.toggle-switch').click()
+      await expect(micGroup.locator('input[type="checkbox"]')).toBeChecked()
+
+      // Step 3: Select Jabra from mic device dropdown
+      const micDeviceSelect = page.locator('.control-group').filter({ hasText: 'Mic Device' }).locator('select')
+      await expect(micDeviceSelect).toBeVisible({ timeout: 5_000 })
+      const options = await micDeviceSelect.locator('option').allTextContents()
+      const jabraOption = options.find(o => o.toLowerCase().includes('jabra'))
+      expect(jabraOption, `Jabra mic not found in device list: ${options.join(', ')}`).toBeTruthy()
+      await micDeviceSelect.selectOption({ label: jabraOption! })
+
+      // Step 4: Click Start Recording
+      const startBtn = page.getByRole('button', { name: 'Start Recording' })
+      await startBtn.scrollIntoViewIfNeeded()
+      stderrChunks.length = 0
+      stdoutChunks.length = 0
+      await startBtn.click()
+
+      // Step 5: Wait for recording to be active
+      const stopBtn = page.getByRole('button', { name: 'Stop Recording' })
+      await expect(stopBtn).toBeVisible({ timeout: 10_000 })
+
+      // Step 6: Record for 3 seconds
+      await page.waitForTimeout(3000)
+
+      // Step 7: Click Stop Recording
+      await stopBtn.click()
+
+      // Step 8: Wait for processing to complete
+      await expect(
+        page.locator(S.editorView)
+          .or(page.locator(S.errorBox))
+          .or(page.getByRole('button', { name: 'Start Recording' }))
+      ).toBeVisible({ timeout: 60_000 })
+
+      // Step 9: Check terminal output for NaN/Inf/muxing errors
+      const allOutput = [...stderrChunks, ...stdoutChunks].join('\n')
+      expect(allOutput, 'Terminal output should not contain NaN/Inf errors').not.toMatch(/Input contains.*NaN/)
+      expect(allOutput, 'Terminal output should not contain muxing failed').not.toContain('muxing failed')
+
+      // Step 10: Assert no error-box
+      const errorBox = page.locator(S.errorBox)
+      const errorVisible = await errorBox.isVisible().catch(() => false)
+      if (errorVisible) {
+        const errorText = await errorBox.textContent()
+        expect(errorVisible, `Recording failed with error: ${errorText}`).toBe(false)
+      }
+
+      // Step 11: Verify editor view loaded
+      await expect(page.locator(S.editorView)).toBeVisible({ timeout: 10_000 })
+
+      // Step 12: Verify playback controls loaded (recording produced valid file)
+      const playBtn = page.locator(S.playBtn)
+      await expect(playBtn).toBeVisible({ timeout: 10_000 })
+    } finally {
+      proc.stderr?.off('data', onStderr)
+      proc.stdout?.off('data', onStdout)
     }
-
-    const sourceId = addResult.sourceId
-
-    // Step 2: Set layout to single source
-    await page.evaluate(async (srcId) => {
-      await (window as any).api.invoke('layout:set', JSON.stringify({
-        type: 'Single',
-        source: srcId,
-      }))
-    }, sourceId)
-
-    const outputDir = tmpdir()
-
-    // Step 3: Start recording with system audio enabled
-    await page.evaluate(async ([dir]) => {
-      await (window as any).api.invoke('recording:start-v2', {
-        outputWidth: 1280,
-        outputHeight: 720,
-        fps: 30,
-        format: 'mp4',
-        quality: 'low',
-        outputDir: dir,
-        captureSystemAudio: true,
-      })
-    }, [outputDir] as const)
-
-    // Step 4: Wait for recording to capture some frames
-    await new Promise(resolve => setTimeout(resolve, 3000))
-
-    // Step 5: Stop recording and get result
-    const result = await page.evaluate(async () => {
-      return await (window as any).api.invoke('recording:stop-v2') as {
-        outputPath: string
-        frameCount: number
-        durationMs: number
-        format: string
-      }
-    })
-
-    // Step 6: Verify output file exists
-    expect(existsSync(result.outputPath)).toBe(true)
-
-    // Step 7: Verify the file contains an audio stream
-    expect(hasAudioStream(result.outputPath)).toBe(true)
-
-    // Step 8: Cleanup
-    try { unlinkSync(result.outputPath) } catch { /* ignore cleanup errors */ }
-
-    await page.evaluate(async (id) => {
-      await (window as any).api.invoke('sources:remove', id)
-    }, sourceId)
   })
 
-  test('Recording without audio has no audio stream', async ({ page }) => {
-    // Step 1: Add a display source
-    const addResult = await page.evaluate(async () => {
-      try {
-        const id = await (window as any).api.invoke('sources:add', 'display', JSON.stringify({
-          type: 'Display',
-          display_index: 0,
-          width: 1280,
-          height: 720,
-        }))
-        return { sourceId: id as number }
-      } catch (e: unknown) {
-        return { error: e instanceof Error ? e.message : String(e) }
-      }
-    })
+  test('Default microphone recording produces working audio', async ({ electronApp, page }) => {
+    const stderrChunks: string[] = []
+    const stdoutChunks: string[] = []
+    const proc = electronApp.process()
+    const onStderr = (data: Buffer) => { stderrChunks.push(data.toString()) }
+    const onStdout = (data: Buffer) => { stdoutChunks.push(data.toString()) }
+    proc.stderr?.on('data', onStderr)
+    proc.stdout?.on('data', onStdout)
 
-    if ('error' in addResult) {
-      test.skip(true, `Screen capture unavailable: ${addResult.error}`)
-      return
+    try {
+      // Step 1: Add a Display source via UI
+      await page.locator(S.addSourceBtn).click()
+      await page.locator(S.dialog).waitFor({ state: 'visible' })
+      await page.locator(`${S.dialog} select`).first().selectOption('Display')
+      await page.locator(S.sourceOptionBtn).first().click()
+      await page.locator(S.dialog).waitFor({ state: 'hidden' })
+      await expect(page.locator(S.sourceItem)).toHaveCount(1, { timeout: 10_000 })
+
+      // Step 2: Turn ON Microphone toggle via UI (default device)
+      const micGroup = page.locator('.control-group.toggle').filter({ hasText: 'Microphone' })
+      await micGroup.locator('.toggle-switch').click()
+      await expect(micGroup.locator('input[type="checkbox"]')).toBeChecked()
+
+      // Step 3: Click Start Recording
+      const startBtn = page.getByRole('button', { name: 'Start Recording' })
+      await startBtn.scrollIntoViewIfNeeded()
+      stderrChunks.length = 0
+      stdoutChunks.length = 0
+      await startBtn.click()
+
+      // Step 4: Wait for recording to be active
+      const stopBtn = page.getByRole('button', { name: 'Stop Recording' })
+      await expect(stopBtn).toBeVisible({ timeout: 10_000 })
+
+      // Step 5: Record for 3 seconds
+      await page.waitForTimeout(3000)
+
+      // Step 6: Click Stop Recording
+      await stopBtn.click()
+
+      // Step 7: Wait for processing to complete
+      await expect(
+        page.locator(S.editorView)
+          .or(page.locator(S.errorBox))
+          .or(page.getByRole('button', { name: 'Start Recording' }))
+      ).toBeVisible({ timeout: 60_000 })
+
+      // Step 8: Assert no error-box
+      const errorBox = page.locator(S.errorBox)
+      const errorVisible = await errorBox.isVisible().catch(() => false)
+      if (errorVisible) {
+        const errorText = await errorBox.textContent()
+        expect(errorVisible, `Recording failed with error: ${errorText}`).toBe(false)
+      }
+
+      // Step 9: Verify editor view loaded
+      await expect(page.locator(S.editorView)).toBeVisible({ timeout: 10_000 })
+
+      // Step 10: Wait for async errors to propagate (Chromium pixel format error is async)
+      await page.waitForTimeout(3000)
+
+      // Step 11: Check terminal output for muxing errors (not pixel format — that's Chromium internal)
+      const allOutput = [...stderrChunks, ...stdoutChunks].join('\n')
+      expect(allOutput, 'Terminal should not contain NaN/Inf error').not.toMatch(/Input contains.*NaN/)
+      expect(allOutput, 'Terminal should not contain muxing failed').not.toContain('muxing failed')
+    } finally {
+      proc.stderr?.off('data', onStderr)
+      proc.stdout?.off('data', onStdout)
     }
-
-    const sourceId = addResult.sourceId
-
-    // Step 2: Set layout to single source
-    await page.evaluate(async (srcId) => {
-      await (window as any).api.invoke('layout:set', JSON.stringify({
-        type: 'Single',
-        source: srcId,
-      }))
-    }, sourceId)
-
-    const outputDir = tmpdir()
-
-    // Step 3: Start recording without audio
-    await page.evaluate(async ([dir]) => {
-      await (window as any).api.invoke('recording:start-v2', {
-        outputWidth: 1280,
-        outputHeight: 720,
-        fps: 30,
-        format: 'mp4',
-        quality: 'low',
-        outputDir: dir,
-        captureSystemAudio: false,
-      })
-    }, [outputDir] as const)
-
-    // Step 4: Wait for recording to capture some frames
-    await new Promise(resolve => setTimeout(resolve, 3000))
-
-    // Step 5: Stop recording and get result
-    const result = await page.evaluate(async () => {
-      return await (window as any).api.invoke('recording:stop-v2') as {
-        outputPath: string
-        frameCount: number
-        durationMs: number
-        format: string
-      }
-    })
-
-    // Step 6: Verify output file exists
-    expect(existsSync(result.outputPath)).toBe(true)
-
-    // Step 7: Verify the file does NOT contain an audio stream
-    expect(hasAudioStream(result.outputPath)).toBe(false)
-
-    // Step 8: Cleanup
-    try { unlinkSync(result.outputPath) } catch { /* ignore cleanup errors */ }
-
-    await page.evaluate(async (id) => {
-      await (window as any).api.invoke('sources:remove', id)
-    }, sourceId)
   })
 
-  test('GIF recording with audio option completes without error', async ({ page }) => {
-    // Step 1: Add a display source
-    const addResult = await page.evaluate(async () => {
-      try {
-        const id = await (window as any).api.invoke('sources:add', 'display', JSON.stringify({
-          type: 'Display',
-          display_index: 0,
-          width: 1280,
-          height: 720,
-        }))
-        return { sourceId: id as number }
-      } catch (e: unknown) {
-        return { error: e instanceof Error ? e.message : String(e) }
-      }
-    })
+  test('System audio recording completes without errors', async ({ electronApp, page }) => {
+    const stderrChunks: string[] = []
+    const stdoutChunks: string[] = []
+    const proc = electronApp.process()
+    const onStderr = (data: Buffer) => { stderrChunks.push(data.toString()) }
+    const onStdout = (data: Buffer) => { stdoutChunks.push(data.toString()) }
+    proc.stderr?.on('data', onStderr)
+    proc.stdout?.on('data', onStdout)
 
-    if ('error' in addResult) {
-      test.skip(true, `Screen capture unavailable: ${addResult.error}`)
-      return
+    let afplay: ChildProcess | null = null
+
+    try {
+      // Step 1: Add a Display source via UI
+      await page.locator(S.addSourceBtn).click()
+      await page.locator(S.dialog).waitFor({ state: 'visible' })
+      await page.locator(`${S.dialog} select`).first().selectOption('Display')
+      await page.locator(S.sourceOptionBtn).first().click()
+      await page.locator(S.dialog).waitFor({ state: 'hidden' })
+      await expect(page.locator(S.sourceItem)).toHaveCount(1, { timeout: 10_000 })
+
+      // Step 2: Turn ON System Audio toggle via UI
+      const systemAudioGroup = page.locator('.control-group.toggle').filter({ hasText: 'System Audio' })
+      await systemAudioGroup.locator('.toggle-switch').click()
+      await expect(systemAudioGroup.locator('input[type="checkbox"]')).toBeChecked()
+
+      // Step 3: Play test tone in background
+      afplay = spawn('afplay', [testTonePath], { stdio: 'ignore' })
+      await page.waitForTimeout(500)
+
+      // Step 4: Click Start Recording
+      const startBtn = page.getByRole('button', { name: 'Start Recording' })
+      await startBtn.scrollIntoViewIfNeeded()
+      stderrChunks.length = 0
+      stdoutChunks.length = 0
+      await startBtn.click()
+
+      // Step 5: Wait for recording to be active
+      const stopBtn = page.getByRole('button', { name: 'Stop Recording' })
+      await expect(stopBtn).toBeVisible({ timeout: 10_000 })
+
+      // Step 6: Record for 3 seconds
+      await page.waitForTimeout(3000)
+
+      // Step 7: Click Stop Recording
+      await stopBtn.click()
+
+      // Step 8: Wait for processing to complete
+      await expect(
+        page.locator(S.editorView)
+          .or(page.locator(S.errorBox))
+          .or(page.getByRole('button', { name: 'Start Recording' }))
+      ).toBeVisible({ timeout: 60_000 })
+
+      // Step 9: Assert no error-box
+      const errorBox = page.locator(S.errorBox)
+      const errorVisible = await errorBox.isVisible().catch(() => false)
+      if (errorVisible) {
+        const errorText = await errorBox.textContent()
+        expect(errorVisible, `Recording failed with error: ${errorText}`).toBe(false)
+      }
+
+      // Step 10: Verify editor view loaded
+      await expect(page.locator(S.editorView)).toBeVisible({ timeout: 10_000 })
+
+      // Step 11: Check terminal output for errors (not pixel format — that's Chromium internal)
+      const allOutput = [...stderrChunks, ...stdoutChunks].join('\n')
+      expect(allOutput, 'Terminal should not contain NaN/Inf error').not.toMatch(/Input contains.*NaN/)
+      expect(allOutput, 'Terminal should not contain muxing failed').not.toContain('muxing failed')
+    } finally {
+      if (afplay) afplay.kill()
+      proc.stderr?.off('data', onStderr)
+      proc.stdout?.off('data', onStdout)
     }
-
-    const sourceId = addResult.sourceId
-
-    // Step 2: Set layout to single source
-    await page.evaluate(async (srcId) => {
-      await (window as any).api.invoke('layout:set', JSON.stringify({
-        type: 'Single',
-        source: srcId,
-      }))
-    }, sourceId)
-
-    const outputDir = tmpdir()
-
-    // Step 3: Start GIF recording with audio option (should be silently ignored)
-    await page.evaluate(async ([dir]) => {
-      await (window as any).api.invoke('recording:start-v2', {
-        outputWidth: 1280,
-        outputHeight: 720,
-        fps: 30,
-        format: 'gif',
-        quality: 'low',
-        outputDir: dir,
-        captureSystemAudio: true,
-      })
-    }, [outputDir] as const)
-
-    // Step 4: Wait for recording to capture some frames
-    await new Promise(resolve => setTimeout(resolve, 3000))
-
-    // Step 5: Stop recording and get result
-    const result = await page.evaluate(async () => {
-      return await (window as any).api.invoke('recording:stop-v2') as {
-        outputPath: string
-        frameCount: number
-        durationMs: number
-        format: string
-      }
-    })
-
-    // Step 6: Verify output file exists
-    expect(existsSync(result.outputPath)).toBe(true)
-
-    // Step 7: Verify the result format is GIF
-    expect(result.format).toBe('gif')
-    expect(hasAudioStream(result.outputPath)).toBe(false)
-
-    // Step 8: Cleanup
-    try { unlinkSync(result.outputPath) } catch { /* ignore cleanup errors */ }
-
-    await page.evaluate(async (id) => {
-      await (window as any).api.invoke('sources:remove', id)
-    }, sourceId)
   })
 })

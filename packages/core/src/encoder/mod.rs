@@ -374,12 +374,19 @@ pub fn mux_audio_video(
     system_audio_path: Option<&std::path::Path>,
     mic_audio_path: Option<&std::path::Path>,
     sample_rate: u32,
-    channel_count: u32,
+    system_channel_count: u32,
+    mic_channel_count: u32,
     format: OutputFormat,
     output_path: &std::path::Path,
 ) -> Result<(), String> {
     if format == OutputFormat::Gif {
         return Err("Audio muxing is not supported for GIF format".to_string());
+    }
+    if system_audio_path.is_some() && system_channel_count == 0 {
+        return Err("system_channel_count must be > 0 when system audio is provided".to_string());
+    }
+    if mic_audio_path.is_some() && mic_channel_count == 0 {
+        return Err("mic_channel_count must be > 0 when mic audio is provided".to_string());
     }
 
     let ffmpeg_path = find_ffmpeg()?;
@@ -392,7 +399,8 @@ pub fn mux_audio_video(
         .ok_or_else(|| "path contains invalid UTF-8".to_string())?;
 
     let sample_rate_str = sample_rate.to_string();
-    let channel_count_str = channel_count.to_string();
+    let system_channel_count_str = system_channel_count.to_string();
+    let mic_channel_count_str = mic_channel_count.to_string();
 
     let mut args: Vec<String> = Vec::new();
 
@@ -411,7 +419,7 @@ pub fn mux_audio_video(
         push_args(&mut args, &[
             "-f", "f32le",
             "-ar", &sample_rate_str,
-            "-ac", &channel_count_str,
+            "-ac", &system_channel_count_str,
             "-i", path_str,
         ]);
     }
@@ -425,7 +433,7 @@ pub fn mux_audio_video(
         push_args(&mut args, &[
             "-f", "f32le",
             "-ar", &sample_rate_str,
-            "-ac", &channel_count_str,
+            "-ac", &mic_channel_count_str,
             "-i", path_str,
         ]);
     }
@@ -436,13 +444,20 @@ pub fn mux_audio_video(
     // -- Stream mapping and audio merge --
     match (has_system, has_mic) {
         (true, true) => {
-            // Merge both audio streams into stereo
-            push_args(&mut args, &[
-                "-filter_complex",
-                "[1:a][2:a]amerge=inputs=2,pan=stereo|c0<c0+c2|c1<c1+c3[aout]",
-                "-map", "0:v",
-                "-map", "[aout]",
-            ]);
+            // After amerge, channels are laid out sequentially:
+            // system channels (0..system_channel_count), then mic channels.
+            // For stereo system (2ch) + mono mic (1ch): c0=sysL, c1=sysR, c2=mic
+            // For stereo system (2ch) + stereo mic (2ch): c0=sysL, c1=sysR, c2=micL, c3=micR
+            let mic_start = system_channel_count;
+            let filter = format!(
+                "[1:a][2:a]amerge=inputs=2,pan=stereo|c0<c0+c{}|c1<c{}+c{}[aout]",
+                mic_start,
+                system_channel_count - 1,
+                mic_start + mic_channel_count - 1,
+            );
+            args.push("-filter_complex".to_string());
+            args.push(filter);
+            push_args(&mut args, &["-map", "0:v", "-map", "[aout]"]);
         }
         (true, false) | (false, true) => {
             push_args(&mut args, &["-map", "0:v", "-map", "1:a"]);

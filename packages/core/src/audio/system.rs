@@ -62,11 +62,12 @@ impl AudioTempFiles {
 // AudioFileHandler — SCStreamOutputTrait implementation
 // ---------------------------------------------------------------------------
 
-/// Receives audio sample buffers from ScreenCaptureKit and writes the raw
-/// PCM f32le data to a file via a buffered writer.
+/// Receives audio sample buffers from ScreenCaptureKit and writes
+/// normalized f32le PCM data to a file via a buffered writer.
 struct AudioFileHandler {
     writer: Arc<Mutex<BufWriter<File>>>,
     write_error: Arc<AtomicBool>,
+    format_logged: AtomicBool,
 }
 
 impl SCStreamOutputTrait for AudioFileHandler {
@@ -75,15 +76,40 @@ impl SCStreamOutputTrait for AudioFileHandler {
         if !matches!(of_type, SCStreamOutputType::Audio | SCStreamOutputType::Microphone) {
             return;
         }
+
+        // Detect audio format from the sample buffer
+        let (is_float, bits) = sample
+            .format_description()
+            .map(|fd| (fd.audio_is_float(), fd.audio_bits_per_channel().unwrap_or(32)))
+            .unwrap_or((true, 32));
+
+        // Log format once for diagnostics (only in debug builds)
+        #[cfg(debug_assertions)]
+        if !self.format_logged.swap(true, Ordering::Relaxed) {
+            let (channels, bytes_per_frame) = sample
+                .format_description()
+                .map(|fd| (fd.audio_channel_count().unwrap_or(0), fd.audio_bytes_per_frame().unwrap_or(0)))
+                .unwrap_or((0, 0));
+            eprintln!(
+                "[audio] {:?} format: float={} bits={} channels={} bytes_per_frame={}",
+                of_type, is_float, bits, channels, bytes_per_frame
+            );
+        }
+
         if let Some(audio_buffers) = sample.audio_buffer_list() {
             for buffer in &audio_buffers {
                 let raw = buffer.data();
                 if raw.is_empty() {
                     continue;
                 }
-                let sanitized = sanitize_f32_audio(raw);
+                let f32_data = match (is_float, bits) {
+                    (true, 32) => sanitize_f32_audio(raw),
+                    (false, 16) => convert_s16le_to_f32le(raw),
+                    (false, 32) => convert_s32le_to_f32le(raw),
+                    _ => sanitize_f32_audio(raw),
+                };
                 if let Ok(mut writer) = self.writer.lock() {
-                    if writer.write_all(&sanitized).is_err() {
+                    if writer.write_all(&f32_data).is_err() {
                         self.write_error.store(true, Ordering::Relaxed);
                         return;
                     }
@@ -97,18 +123,38 @@ impl SCStreamOutputTrait for AudioFileHandler {
 // sanitize_f32_audio
 // ---------------------------------------------------------------------------
 
-/// Sanitize f32 PCM audio data — replace NaN/Inf with 0.0.
+/// Sanitize f32 PCM audio data — replace NaN/Inf/subnormals with 0.0.
 ///
 /// Input is raw bytes, 4 bytes per f32 sample, little-endian.
 fn sanitize_f32_audio(raw: &[u8]) -> Vec<u8> {
     let mut result = Vec::with_capacity(raw.len());
     for chunk in raw.chunks_exact(4) {
         let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        let clean = if sample.is_finite() { sample } else { 0.0f32 };
+        let clean = if sample.is_normal() || sample == 0.0 { sample } else { 0.0f32 };
         result.extend_from_slice(&clean.to_le_bytes());
     }
-    // Remainder bytes (incomplete samples) are silently dropped — this should
-    // not happen with correctly-formatted audio, but we handle it gracefully.
+    result
+}
+
+/// Convert signed 16-bit little-endian PCM to f32le.
+fn convert_s16le_to_f32le(raw: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(raw.len() * 2);
+    for chunk in raw.chunks_exact(2) {
+        let sample = i16::from_le_bytes([chunk[0], chunk[1]]);
+        let f32_sample = sample as f32 / 32768.0;
+        result.extend_from_slice(&f32_sample.to_le_bytes());
+    }
+    result
+}
+
+/// Convert signed 32-bit little-endian PCM to f32le.
+fn convert_s32le_to_f32le(raw: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(raw.len());
+    for chunk in raw.chunks_exact(4) {
+        let sample = i32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        let f32_sample = sample as f32 / 2_147_483_648.0;
+        result.extend_from_slice(&f32_sample.to_le_bytes());
+    }
     result
 }
 
@@ -156,13 +202,22 @@ impl AudioRecorder {
 
         // Minimal video dimensions — SCStream requires a video surface even
         // when we only care about audio.
+        // channelCount applies to the entire SCK stream.
+        // When system audio is captured, use stereo (2).
+        // When only microphone is captured, use mono (1) to match most mic devices.
+        let stream_channel_count = if config.capture_system_audio {
+            config.channel_count as i32
+        } else {
+            config.mic_channel_count as i32
+        };
+
         let mut sc_config = SCStreamConfiguration::new()
-            .with_width(2)
-            .with_height(2)
+            .with_width(16)
+            .with_height(16)
             .with_captures_audio(config.capture_system_audio)
             .with_captures_microphone(config.capture_microphone)
             .with_sample_rate(config.sample_rate as i32)
-            .with_channel_count(config.channel_count as i32)
+            .with_channel_count(stream_channel_count)
             .with_excludes_current_process_audio(true);
 
         if let Some(ref id) = config.microphone_device_id {
@@ -186,6 +241,7 @@ impl AudioRecorder {
             let handler = AudioFileHandler {
                 writer: Arc::clone(&writer),
                 write_error: Arc::clone(&system_write_error),
+                format_logged: AtomicBool::new(false),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Audio);
             system_writer = Some(writer);
@@ -204,6 +260,7 @@ impl AudioRecorder {
             let handler = AudioFileHandler {
                 writer: Arc::clone(&writer),
                 write_error: Arc::clone(&mic_write_error),
+                format_logged: AtomicBool::new(false),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Microphone);
             mic_writer = Some(writer);
@@ -414,5 +471,117 @@ mod tests {
         // Cleanup
         let _ = std::fs::remove_file(&sys_path);
         let _ = std::fs::remove_file(&mic_path);
+    }
+
+    // -----------------------------------------------------------------------
+    // convert_s16le_to_f32le
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_convert_s16le_to_f32le_normal() {
+        let input = 16384i16.to_le_bytes().to_vec();
+        let output = convert_s16le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!((result - 0.5).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_convert_s16le_to_f32le_max() {
+        let input = i16::MAX.to_le_bytes().to_vec();
+        let output = convert_s16le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!(result > 0.99 && result < 1.0);
+    }
+
+    #[test]
+    fn test_convert_s16le_to_f32le_min() {
+        let input = i16::MIN.to_le_bytes().to_vec();
+        let output = convert_s16le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!((result - (-1.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_convert_s16le_to_f32le_zero() {
+        let input = 0i16.to_le_bytes().to_vec();
+        let output = convert_s16le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_convert_s16le_to_f32le_odd_bytes_truncated() {
+        let mut input = 16384i16.to_le_bytes().to_vec();
+        input.push(0xFF);
+        let output = convert_s16le_to_f32le(&input);
+        assert_eq!(output.len(), 4);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!((result - 0.5).abs() < f32::EPSILON);
+    }
+
+    // -----------------------------------------------------------------------
+    // convert_s32le_to_f32le
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_convert_s32le_to_f32le_normal() {
+        let input = 1_073_741_824i32.to_le_bytes().to_vec();
+        let output = convert_s32le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!((result - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_convert_s32le_to_f32le_max() {
+        let input = i32::MAX.to_le_bytes().to_vec();
+        let output = convert_s32le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!(result > 0.99 && result <= 1.0);
+    }
+
+    #[test]
+    fn test_convert_s32le_to_f32le_min() {
+        let input = i32::MIN.to_le_bytes().to_vec();
+        let output = convert_s32le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert!((result - (-1.0)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn test_convert_s32le_to_f32le_zero() {
+        let input = 0i32.to_le_bytes().to_vec();
+        let output = convert_s32le_to_f32le(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert_eq!(result, 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // sanitize_f32_audio — subnormal handling
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_sanitize_f32_audio_replaces_subnormal() {
+        let subnormal = f32::from_bits(1u32);
+        assert!(subnormal.is_subnormal(), "test precondition: value must be subnormal");
+        let input = subnormal.to_le_bytes().to_vec();
+        let output = sanitize_f32_audio(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert_eq!(result, 0.0, "subnormal should be replaced with 0.0");
+    }
+
+    #[test]
+    fn test_sanitize_f32_audio_preserves_zero() {
+        let input = 0.0f32.to_le_bytes().to_vec();
+        let output = sanitize_f32_audio(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert_eq!(result, 0.0);
+    }
+
+    #[test]
+    fn test_sanitize_f32_audio_preserves_neg_zero() {
+        let input = (-0.0f32).to_le_bytes().to_vec();
+        let output = sanitize_f32_audio(&input);
+        let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
+        assert_eq!(result, 0.0);
     }
 }
