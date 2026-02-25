@@ -281,6 +281,7 @@ struct RecordingHandleV2 {
     audio_config_sample_rate: u32,
     audio_channel_count: u32,
     audio_mic_channel_count: u32,
+    core_audio_output_sample_rate: Option<u32>,
     final_output_path: PathBuf,
 }
 
@@ -505,6 +506,12 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         })
     });
 
+    let core_audio_sr = if audio_config.capture_system_audio {
+        audio::get_default_output_sample_rate()
+    } else {
+        None
+    };
+
     let mut state = RECORDING_V2_STATE
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
@@ -520,6 +527,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         } else {
             audio_config.mic_channel_count
         },
+        core_audio_output_sample_rate: core_audio_sr,
         final_output_path,
     });
 
@@ -583,13 +591,29 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 _ => crate::encoder::OutputFormat::Mp4,
             };
 
-            // Use detected sample rates when available, fall back to config rate
-            let system_sr = audio_temp
-                .system_sample_rate
+            // Priority for system audio sample rate:
+            // CoreAudio (actual device rate) > SCK detection > config (48kHz)
+            let system_sr = handle
+                .core_audio_output_sample_rate
+                .or(audio_temp.system_sample_rate)
                 .unwrap_or(handle.audio_config_sample_rate);
+            // Mic sample rate: SCK detection > config
             let mic_sr = audio_temp
                 .mic_sample_rate
                 .unwrap_or(handle.audio_config_sample_rate);
+
+            // Use detected channel counts when available, fall back to config
+            let system_ch = audio_temp
+                .system_channel_count
+                .unwrap_or(handle.audio_channel_count);
+            let mic_ch = audio_temp
+                .mic_channel_count
+                .unwrap_or(handle.audio_mic_channel_count);
+
+            eprintln!(
+                "[audio] mux params: system_sr={} mic_sr={} system_ch={} mic_ch={}",
+                system_sr, mic_sr, system_ch, mic_ch
+            );
 
             let mux_result = crate::encoder::mux_audio_video(
                 video_temp_path,
@@ -597,8 +621,8 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 audio_temp.mic_audio_path_if_nonempty().map(|p| p.as_path()),
                 system_sr,
                 mic_sr,
-                handle.audio_channel_count,
-                handle.audio_mic_channel_count,
+                system_ch,
+                mic_ch,
                 format,
                 &handle.final_output_path,
             );

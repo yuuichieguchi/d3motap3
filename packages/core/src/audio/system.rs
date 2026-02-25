@@ -23,6 +23,10 @@ pub struct AudioTempFiles {
     pub system_sample_rate: Option<u32>,
     /// Actual sample rate detected from the first mic audio buffer.
     pub mic_sample_rate: Option<u32>,
+    /// Actual channel count detected from the first system audio buffer.
+    pub system_channel_count: Option<u32>,
+    /// Actual channel count detected from the first mic audio buffer.
+    pub mic_channel_count: Option<u32>,
 }
 
 impl AudioTempFiles {
@@ -71,8 +75,8 @@ impl AudioTempFiles {
 struct AudioFileHandler {
     writer: Arc<Mutex<BufWriter<File>>>,
     write_error: Arc<AtomicBool>,
-    format_logged: AtomicBool,
     detected_sample_rate: Arc<Mutex<Option<f64>>>,
+    detected_channel_count: Arc<Mutex<Option<u32>>>,
 }
 
 impl SCStreamOutputTrait for AudioFileHandler {
@@ -88,28 +92,30 @@ impl SCStreamOutputTrait for AudioFileHandler {
             .map(|fd| (fd.audio_is_float(), fd.audio_bits_per_channel().unwrap_or(32)))
             .unwrap_or((true, 32));
 
-        // Log format once for diagnostics (only in debug builds)
-        #[cfg(debug_assertions)]
-        if !self.format_logged.swap(true, Ordering::Relaxed) {
-            let (channels, bytes_per_frame) = sample
-                .format_description()
-                .map(|fd| (fd.audio_channel_count().unwrap_or(0), fd.audio_bytes_per_frame().unwrap_or(0)))
-                .unwrap_or((0, 0));
-            eprintln!(
-                "[audio] {:?} format: float={} bits={} channels={} bytes_per_frame={}",
-                of_type, is_float, bits, channels, bytes_per_frame
-            );
-        }
-
-        // Detect actual sample rate from the first sample buffer
+        // Detect actual sample rate and channel count from the first sample buffer
         {
             let mut rate = self.detected_sample_rate.lock().unwrap_or_else(|e| e.into_inner());
-            if rate.is_none() {
+            let mut channels = self.detected_channel_count.lock().unwrap_or_else(|e| e.into_inner());
+            if rate.is_none() || channels.is_none() {
                 if let Some(fd) = sample.format_description() {
-                    if let Some(sr) = fd.audio_sample_rate() {
-                        #[cfg(debug_assertions)]
-                        eprintln!("[audio] {:?} detected sample rate: {} Hz", of_type, sr);
-                        *rate = Some(sr);
+                    if rate.is_none() {
+                        if let Some(sr) = fd.audio_sample_rate() {
+                            *rate = Some(sr);
+                        }
+                    }
+                    if channels.is_none() {
+                        if let Some(ch) = fd.audio_channel_count() {
+                            *channels = Some(ch);
+                        }
+                    }
+                    // Log once when both are detected
+                    if rate.is_some() && channels.is_some() {
+                        eprintln!(
+                            "[audio] {:?} detected: sample_rate={} Hz, channels={}",
+                            of_type,
+                            rate.map_or("unknown".to_string(), |r| format!("{}", r)),
+                            channels.map_or("unknown".to_string(), |c| format!("{}", c)),
+                        );
                     }
                 }
             }
@@ -196,6 +202,8 @@ pub struct AudioRecorder {
     mic_write_error: Arc<AtomicBool>,
     system_detected_sample_rate: Arc<Mutex<Option<f64>>>,
     mic_detected_sample_rate: Arc<Mutex<Option<f64>>>,
+    system_detected_channel_count: Arc<Mutex<Option<u32>>>,
+    mic_detected_channel_count: Arc<Mutex<Option<u32>>>,
 }
 
 // SCStream is not marked Send/Sync by the crate.  We guard access through
@@ -251,6 +259,8 @@ impl AudioRecorder {
         let mic_write_error = Arc::new(AtomicBool::new(false));
         let system_detected_sample_rate = Arc::new(Mutex::new(None));
         let mic_detected_sample_rate = Arc::new(Mutex::new(None));
+        let system_detected_channel_count: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let mic_detected_channel_count: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
 
         // -- system audio output handler --
         let mut system_writer: Option<Arc<Mutex<BufWriter<File>>>> = None;
@@ -264,8 +274,8 @@ impl AudioRecorder {
             let handler = AudioFileHandler {
                 writer: Arc::clone(&writer),
                 write_error: Arc::clone(&system_write_error),
-                format_logged: AtomicBool::new(false),
                 detected_sample_rate: Arc::clone(&system_detected_sample_rate),
+                detected_channel_count: Arc::clone(&system_detected_channel_count),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Audio);
             system_writer = Some(writer);
@@ -284,8 +294,8 @@ impl AudioRecorder {
             let handler = AudioFileHandler {
                 writer: Arc::clone(&writer),
                 write_error: Arc::clone(&mic_write_error),
-                format_logged: AtomicBool::new(false),
                 detected_sample_rate: Arc::clone(&mic_detected_sample_rate),
+                detected_channel_count: Arc::clone(&mic_detected_channel_count),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Microphone);
             mic_writer = Some(writer);
@@ -306,6 +316,8 @@ impl AudioRecorder {
             mic_write_error,
             system_detected_sample_rate,
             mic_detected_sample_rate,
+            system_detected_channel_count,
+            mic_detected_channel_count,
         })
     }
 
@@ -350,13 +362,23 @@ impl AudioRecorder {
                 .lock()
                 .ok()
                 .and_then(|r| *r)
-                .map(|r| r as u32),
+                .map(|r| r.round() as u32),
             mic_sample_rate: self
                 .mic_detected_sample_rate
                 .lock()
                 .ok()
                 .and_then(|r| *r)
-                .map(|r| r as u32),
+                .map(|r| r.round() as u32),
+            system_channel_count: self
+                .system_detected_channel_count
+                .lock()
+                .ok()
+                .and_then(|c| *c),
+            mic_channel_count: self
+                .mic_detected_channel_count
+                .lock()
+                .ok()
+                .and_then(|c| *c),
         })
     }
 }
@@ -464,6 +486,8 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_channel_count: None,
+            mic_channel_count: None,
         };
         assert!(!no_audio.has_audio());
 
@@ -473,6 +497,8 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_channel_count: None,
+            mic_channel_count: None,
         };
         assert!(!nonexistent.has_audio());
 
@@ -490,6 +516,8 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_channel_count: None,
+            mic_channel_count: None,
         };
         assert!(system_only.has_audio());
 
@@ -498,6 +526,8 @@ mod tests {
             mic_audio_path: Some(mic_path.clone()),
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_channel_count: None,
+            mic_channel_count: None,
         };
         assert!(mic_only.has_audio());
 
@@ -506,6 +536,8 @@ mod tests {
             mic_audio_path: Some(mic_path.clone()),
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_channel_count: None,
+            mic_channel_count: None,
         };
         assert!(both.has_audio());
 
@@ -516,6 +548,8 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_channel_count: None,
+            mic_channel_count: None,
         };
         assert!(!empty_file.has_audio());
 
