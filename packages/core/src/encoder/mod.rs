@@ -7,9 +7,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
-/// Marker substring in error messages indicating FFmpeg exited (broken pipe).
-pub const BROKEN_PIPE_MARKER: &str = "[BROKEN_PIPE]";
-
 // ---------------------------------------------------------------------------
 // Configuration types
 // ---------------------------------------------------------------------------
@@ -58,13 +55,6 @@ pub struct EncoderConfig {
     /// actual bytes-per-row so that padding is stripped before writing.
     /// If `None`, the stride is assumed to be `width * 4` (tightly packed).
     pub bytes_per_row: Option<usize>,
-    /// Path to the named FIFO containing raw f32le audio data.
-    /// When `None`, no audio track is produced.
-    pub audio_fifo_path: Option<std::path::PathBuf>,
-    /// Audio sample rate in Hz (e.g. 48000). Only used when audio_fifo_path is Some.
-    pub audio_sample_rate: u32,
-    /// Audio channel count (e.g. 2 for stereo). Only used when audio_fifo_path is Some.
-    pub audio_channel_count: u32,
 }
 
 // ---------------------------------------------------------------------------
@@ -130,11 +120,9 @@ impl FfmpegEncoder {
         let mut args: Vec<String> = Vec::new();
 
         // -- Global flags --
-        let has_audio = config.audio_fifo_path.is_some();
-        let loglevel = if has_audio { "warning" } else { "error" };
-        push_args(&mut args, &["-y", "-hide_banner", "-loglevel", loglevel]);
+        push_args(&mut args, &["-y", "-hide_banner", "-loglevel", "error"]);
 
-        // -- Video input specification --
+        // -- Input specification --
         push_args(&mut args, &[
             "-f", "rawvideo",
             "-pixel_format", "bgra",
@@ -142,25 +130,6 @@ impl FfmpegEncoder {
             "-framerate", &fps_str,
             "-i", "pipe:0",
         ]);
-
-        // -- Audio input (from named FIFO) --
-        if let Some(ref fifo_path) = config.audio_fifo_path {
-            let fifo_str = fifo_path.to_str()
-                .ok_or_else(|| "Audio FIFO path contains invalid UTF-8".to_string())?;
-            let sr = config.audio_sample_rate.to_string();
-            let ch = config.audio_channel_count.to_string();
-            push_args(&mut args, &[
-                "-f", "f32le",
-                "-ar", &sr,
-                "-ac", &ch,
-                "-i", fifo_str,
-            ]);
-        }
-
-        // -- Stream mapping (required when multiple inputs) --
-        if has_audio {
-            push_args(&mut args, &["-map", "0:v", "-map", "1:a"]);
-        }
 
         // -- Output codec/format-specific flags --
         match config.format {
@@ -177,9 +146,6 @@ impl FfmpegEncoder {
                     "-preset", preset,
                     "-movflags", "+faststart",
                 ]);
-                if has_audio {
-                    push_args(&mut args, &["-c:a", "aac", "-b:a", "192k"]);
-                }
             }
             OutputFormat::Gif => {
                 // Two-pass palettegen does not work with pipe input, so we
@@ -205,9 +171,6 @@ impl FfmpegEncoder {
                     "-crf", crf,
                     "-b:v", "0",
                 ]);
-                if has_audio {
-                    push_args(&mut args, &["-c:a", "libopus", "-b:a", "128k"]);
-                }
             }
         }
 
@@ -262,45 +225,21 @@ impl FfmpegEncoder {
             .as_mut()
             .ok_or_else(|| "FFmpeg stdin is not available (process may have exited)".to_string())?;
 
-        let write_result = if self.src_stride == self.row_bytes {
+        if self.src_stride == self.row_bytes {
             // Tightly packed -- single write for the whole frame.
             let tight_size = self.height as usize * self.row_bytes;
-            stdin.write_all(&frame_data[..tight_size])
+            stdin
+                .write_all(&frame_data[..tight_size])
+                .map_err(|e| format!("Failed to write frame to FFmpeg: {}", e))?;
         } else {
             // Source has row padding -- strip it by writing row-by-row.
-            let mut result = Ok(());
             for y in 0..self.height as usize {
                 let start = y * self.src_stride;
                 let end = start + self.row_bytes;
-                result = stdin.write_all(&frame_data[start..end]);
-                if result.is_err() {
-                    break;
-                }
+                stdin
+                    .write_all(&frame_data[start..end])
+                    .map_err(|e| format!("Failed to write frame row {} to FFmpeg: {}", y, e))?;
             }
-            result
-        };
-
-        if let Err(e) = write_result {
-            if e.kind() == std::io::ErrorKind::BrokenPipe {
-                // FFmpeg process likely exited; check for stderr output
-                let stderr_hint = self
-                    .process
-                    .stderr
-                    .as_mut()
-                    .and_then(|err| {
-                        let mut buf = [0u8; 1024];
-                        std::io::Read::read(err, &mut buf).ok().map(|n| {
-                            String::from_utf8_lossy(&buf[..n]).to_string()
-                        })
-                    })
-                    .unwrap_or_default();
-                return Err(format!(
-                    "{} FFmpeg process exited unexpectedly (broken pipe). stderr: {}",
-                    BROKEN_PIPE_MARKER,
-                    if stderr_hint.is_empty() { "(empty)" } else { &stderr_hint }
-                ));
-            }
-            return Err(format!("Failed to write frame to FFmpeg: {}", e));
         }
 
         self.frame_count += 1;

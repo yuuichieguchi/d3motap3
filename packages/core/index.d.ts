@@ -57,7 +57,7 @@ export interface WebcamInfoJs {
 export declare function listWebcams(): Array<WebcamInfoJs>
 export declare function setLayout(layoutJson: string): void
 export declare function getPreviewFrame(maxWidth: number, maxHeight: number): Buffer | null
-export declare function startRecordingV2(outputWidth: number, outputHeight: number, fps: number, outputPath: string, format: string, quality: string, captureSystemAudio?: boolean | undefined | null, captureMicrophone?: boolean | undefined | null, microphoneDeviceId?: string | undefined | null): void
+export declare function startRecordingV2(outputWidth: number, outputHeight: number, fps: number, outputPath: string, format: string, quality: string): void
 export declare function stopRecordingV2(): RecordingResultInfo
 export declare function getRecordingV2ElapsedMs(): number
 export declare function isRecordingV2(): boolean
@@ -74,12 +74,6 @@ export interface IosDeviceJs {
   model: string
 }
 export declare function listIosDevices(): Array<IosDeviceJs>
-export interface AudioDeviceInfoJs {
-  id: string
-  name: string
-  isDefault: boolean
-}
-export declare function listAudioInputDevices(): Array<AudioDeviceInfoJs>
 export declare function terminalWriteInput(sourceId: number, data: Buffer): void
 export declare function terminalResize(sourceId: number, rows: number, cols: number): void
 export declare function scriptRun(yamlPath: string, outputPath: string): void

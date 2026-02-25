@@ -38,7 +38,6 @@ import {
   editorThumbnails,
   editorExport,
   editorExportStatus,
-  listAudioInputDevices,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -49,7 +48,6 @@ import type {
   AdbDeviceJs,
   IosDeviceJs,
   VideoMetadataJs,
-  AudioDeviceInfoJs,
 } from '@d3motap3/core'
 import { existsSync } from 'fs'
 import { app } from 'electron'
@@ -134,8 +132,8 @@ export const nativeBridge = {
   },
 
   // Audio devices
-  listAudioInputDevices(): AudioDeviceInfoJs[] {
-    return listAudioInputDevices()
+  listAudioInputDevices(): Array<{ id: string; name: string; isDefault: boolean }> {
+    return []
   },
 
   // Layout
@@ -177,9 +175,6 @@ export const nativeBridge = {
       outputPath,
       config.format,
       config.quality,
-      config.captureSystemAudio ?? false,
-      config.captureMicrophone ?? false,
-      config.microphoneDeviceId,
     )
     return outputPath
   },

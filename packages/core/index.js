@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { hello, add, listDisplays, startCapture, stopCapture, getLatestFrame, getFrameCount, isCapturing, ffmpegVersion, isFfmpegAvailable, startRecording, stopRecording, getRecordingElapsedMs, isRecording, addSource, removeSource, listSources, listWindows, listWebcams, setLayout, getPreviewFrame, startRecordingV2, stopRecordingV2, getRecordingV2ElapsedMs, isRecordingV2, listAndroidDevices, isAdbAvailable, listIosDevices, listAudioInputDevices, terminalWriteInput, terminalResize, scriptRun, scriptCancel, scriptStatus, aiStartNarration, aiStartScriptGen, aiStatus, aiCancel, aiReset, setCaption, clearCaption, editorProbe, editorThumbnails, editorExport, editorExportStatus } = nativeBinding
+const { hello, add, listDisplays, startCapture, stopCapture, getLatestFrame, getFrameCount, isCapturing, ffmpegVersion, isFfmpegAvailable, startRecording, stopRecording, getRecordingElapsedMs, isRecording, addSource, removeSource, listSources, listWindows, listWebcams, setLayout, getPreviewFrame, startRecordingV2, stopRecordingV2, getRecordingV2ElapsedMs, isRecordingV2, listAndroidDevices, isAdbAvailable, listIosDevices, terminalWriteInput, terminalResize, scriptRun, scriptCancel, scriptStatus, aiStartNarration, aiStartScriptGen, aiStatus, aiCancel, aiReset, setCaption, clearCaption, editorProbe, editorThumbnails, editorExport, editorExportStatus } = nativeBinding
 
 module.exports.hello = hello
 module.exports.add = add
@@ -340,7 +340,6 @@ module.exports.isRecordingV2 = isRecordingV2
 module.exports.listAndroidDevices = listAndroidDevices
 module.exports.isAdbAvailable = isAdbAvailable
 module.exports.listIosDevices = listIosDevices
-module.exports.listAudioInputDevices = listAudioInputDevices
 module.exports.terminalWriteInput = terminalWriteInput
 module.exports.terminalResize = terminalResize
 module.exports.scriptRun = scriptRun
