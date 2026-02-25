@@ -280,6 +280,7 @@ struct RecordingHandleV2 {
     audio_recorder: Option<audio::system::AudioRecorder>,
     audio_sample_rate: u32,
     audio_channel_count: u32,
+    audio_mic_channel_count: u32,
     final_output_path: PathBuf,
 }
 
@@ -514,6 +515,11 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         audio_recorder,
         audio_sample_rate: audio_config.sample_rate,
         audio_channel_count: audio_config.channel_count,
+        audio_mic_channel_count: if audio_config.capture_system_audio {
+            audio_config.channel_count
+        } else {
+            audio_config.mic_channel_count
+        },
         final_output_path,
     });
 
@@ -583,6 +589,7 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 audio_temp.mic_audio_path_if_nonempty().map(|p| p.as_path()),
                 handle.audio_sample_rate,
                 handle.audio_channel_count,
+                handle.audio_mic_channel_count,
                 format,
                 &handle.final_output_path,
             );

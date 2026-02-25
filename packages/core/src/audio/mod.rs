@@ -26,8 +26,10 @@ pub struct AudioConfig {
     pub microphone_device_id: Option<String>,
     /// Sample rate in Hz (e.g. 48000).
     pub sample_rate: u32,
-    /// Number of audio channels (e.g. 2 for stereo).
+    /// Number of channels for system audio (e.g. 2 for stereo).
     pub channel_count: u32,
+    /// Number of channels for microphone audio (e.g. 1 for mono).
+    pub mic_channel_count: u32,
 }
 
 impl Default for AudioConfig {
@@ -38,6 +40,7 @@ impl Default for AudioConfig {
             microphone_device_id: None,
             sample_rate: 48_000,
             channel_count: 2,
+            mic_channel_count: 1,
         }
     }
 }
