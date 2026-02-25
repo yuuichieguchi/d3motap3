@@ -82,6 +82,47 @@ impl DisplayCaptureSource {
             stream: None,
         })
     }
+
+    /// Create a new display capture source targeting a specific `display_id`.
+    ///
+    /// Unlike `new()` which uses a positional index, this constructor uses the
+    /// CGDirectDisplayID directly. This is required for iOS devices which are
+    /// identified by their display ID rather than position.
+    pub fn from_display_id(display_id: u32, width: u32, height: u32, name: String) -> Result<Self, String> {
+        let content = SCShareableContent::get()
+            .map_err(|e| format!("Failed to get shareable content: {}", e))?;
+        let displays = content.displays();
+
+        // Verify the display_id exists
+        if !displays.iter().any(|d| d.display_id() == display_id) {
+            return Err(format!(
+                "Display with ID {} not found (have {} displays)",
+                display_id,
+                displays.len()
+            ));
+        }
+
+        // Offset width by +2 when another active source already uses the same
+        // dimensions, so the dimension-based frame filter can distinguish them.
+        let adjusted_width = with_registry(|reg| {
+            let has_conflict = reg.active_sources().iter().any(|(_, s)| {
+                let (w, h) = s.dimensions();
+                w == width && h == height
+            });
+            if has_conflict { width.saturating_add(2) } else { width }
+        }).unwrap_or(width);
+
+        Ok(Self {
+            display_id,
+            width: adjusted_width,
+            height,
+            source_name: name,
+            latest_frame: Arc::new(Mutex::new(None)),
+            is_active: Arc::new(AtomicBool::new(false)),
+            frame_count: Arc::new(AtomicU64::new(0)),
+            stream: None,
+        })
+    }
 }
 
 impl CaptureSource for DisplayCaptureSource {

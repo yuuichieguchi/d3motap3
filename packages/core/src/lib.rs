@@ -213,7 +213,8 @@ pub fn add_source(_source_type: String, config_json: String) -> napi::Result<u32
             width,
             height,
         } => {
-            let mut src = mobile::ios::IosCaptureSource::new(device_id, width, height);
+            let mut src = mobile::ios::IosCaptureSource::new(device_id, width, height)
+                .map_err(|e| napi::Error::from_reason(e))?;
             src.start().map_err(|e| napi::Error::from_reason(e))?;
             Box::new(src)
         }
