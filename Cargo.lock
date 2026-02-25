@@ -361,6 +361,7 @@ dependencies = [
  "napi-build",
  "napi-derive",
  "nokhwa",
+ "objc",
  "portable-pty",
  "screencapturekit",
  "serde",
