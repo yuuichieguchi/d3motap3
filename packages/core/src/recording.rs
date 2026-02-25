@@ -128,13 +128,22 @@ pub fn start_recording_impl(config: RecordingConfig) -> Result<(), String> {
         encoder.write_frame(&first_frame.data)?;
 
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
+        let mut next_frame_time = Instant::now() + frame_interval;
 
         // Main encoding loop
         while RECORDING_ACTIVE.load(Ordering::Relaxed) {
             if let Some(frame) = capture::get_latest_frame_impl() {
                 encoder.write_frame(&frame.data)?;
             }
-            thread::sleep(frame_interval);
+            let now = Instant::now();
+            if now < next_frame_time {
+                thread::sleep(next_frame_time - now);
+            }
+            next_frame_time += frame_interval;
+            // Cap drift: if we've fallen behind by more than 3 frames, reset to avoid burst
+            if now > next_frame_time + frame_interval * 3 {
+                next_frame_time = now + frame_interval;
+            }
         }
 
         let result = encoder.finish()?;
@@ -397,6 +406,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         encoder.write_frame(&composed_owned)?;
 
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
+        let mut next_frame_time = Instant::now() + frame_interval;
 
         // Main encoding loop
         while RECORDING_V2_ACTIVE.load(Ordering::Relaxed) {
@@ -430,7 +440,15 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
                 encoder.write_frame(&composed_owned)?;
             }
 
-            thread::sleep(frame_interval);
+            let now = Instant::now();
+            if now < next_frame_time {
+                thread::sleep(next_frame_time - now);
+            }
+            next_frame_time += frame_interval;
+            // Cap drift: if we've fallen behind by more than 3 frames, reset to avoid burst
+            if now > next_frame_time + frame_interval * 3 {
+                next_frame_time = now + frame_interval;
+            }
         }
 
         let result = encoder.finish()?;
