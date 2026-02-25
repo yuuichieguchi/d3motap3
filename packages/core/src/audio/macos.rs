@@ -200,8 +200,11 @@ impl SCStreamOutputTrait for AudioSampleHandler {
                 if data.is_empty() {
                     continue;
                 }
+                // Sanitize f32 samples: replace NaN/Inf with 0.0
+                // to prevent FFmpeg AAC encoder from rejecting the input.
+                let sanitized = sanitize_f32_samples(data);
                 if let Ok(mut queue) = self.buffer.lock() {
-                    queue.push_back(data.to_vec());
+                    queue.push_back(sanitized);
                     // Evict oldest chunks when the buffer is too large.
                     while queue.len() > MAX_BUFFER_CHUNKS {
                         queue.pop_front();
@@ -312,4 +315,355 @@ fn write_all(fd: &OwnedFd, buf: &[u8]) -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+/// Replace NaN and Infinite f32 samples with silence (0.0).
+///
+/// Audio data from ScreenCaptureKit occasionally contains NaN or Infinity
+/// values which cause FFmpeg's AAC encoder to reject the input with
+/// "Input contains (near) NaN/+-Inf". This function sanitizes the raw PCM
+/// byte buffer before it enters the ring buffer.
+fn sanitize_f32_samples(raw: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(raw.len());
+    let chunks = raw.chunks_exact(4);
+    let remainder = chunks.remainder();
+    for chunk in chunks {
+        let bytes: [u8; 4] = chunk.try_into().unwrap();
+        let sample = f32::from_le_bytes(bytes);
+        let clean = if sample.is_finite() { sample } else { 0.0f32 };
+        out.extend_from_slice(&clean.to_le_bytes());
+    }
+    if !remainder.is_empty() {
+        out.extend_from_slice(remainder);
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Helper: convert an f32 value to its little-endian byte representation.
+    fn f32_to_bytes(value: f32) -> [u8; 4] {
+        value.to_le_bytes()
+    }
+
+    /// Helper: read an f32 from little-endian bytes at a given offset.
+    fn f32_from_bytes(bytes: &[u8], offset: usize) -> f32 {
+        let chunk: [u8; 4] = bytes[offset..offset + 4].try_into().unwrap();
+        f32::from_le_bytes(chunk)
+    }
+
+    // ==================== Happy Path ====================
+
+    #[test]
+    fn test_should_pass_through_normal_samples_unchanged() {
+        // Given: A buffer of normal finite f32 samples
+        let samples: Vec<f32> = vec![0.0, 0.5, -0.5, 1.0, -1.0, 0.123_456_78];
+        let raw: Vec<u8> = samples.iter().flat_map(|s| f32_to_bytes(*s)).collect();
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: All samples are identical to the input
+        assert_eq!(result.len(), raw.len());
+        for (i, &expected) in samples.iter().enumerate() {
+            let actual = f32_from_bytes(&result, i * 4);
+            assert_eq!(
+                actual, expected,
+                "Sample at index {} should be {} but was {}",
+                i, expected, actual
+            );
+        }
+    }
+
+    // ==================== NaN Replacement ====================
+
+    #[test]
+    fn test_should_replace_nan_with_silence() {
+        // Given: A buffer containing a NaN sample
+        let raw = f32_to_bytes(f32::NAN).to_vec();
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: NaN is replaced with 0.0 (silence)
+        assert_eq!(result.len(), 4);
+        let value = f32_from_bytes(&result, 0);
+        assert_eq!(value, 0.0f32, "NaN should be replaced with 0.0");
+        assert!(!value.is_nan(), "Result must not be NaN");
+    }
+
+    // ==================== Positive Infinity Replacement ====================
+
+    #[test]
+    fn test_should_replace_positive_infinity_with_silence() {
+        // Given: A buffer containing positive infinity
+        let raw = f32_to_bytes(f32::INFINITY).to_vec();
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: +Inf is replaced with 0.0 (silence)
+        assert_eq!(result.len(), 4);
+        let value = f32_from_bytes(&result, 0);
+        assert_eq!(
+            value, 0.0f32,
+            "Positive infinity should be replaced with 0.0"
+        );
+    }
+
+    // ==================== Negative Infinity Replacement ====================
+
+    #[test]
+    fn test_should_replace_negative_infinity_with_silence() {
+        // Given: A buffer containing negative infinity
+        let raw = f32_to_bytes(f32::NEG_INFINITY).to_vec();
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: -Inf is replaced with 0.0 (silence)
+        assert_eq!(result.len(), 4);
+        let value = f32_from_bytes(&result, 0);
+        assert_eq!(
+            value, 0.0f32,
+            "Negative infinity should be replaced with 0.0"
+        );
+    }
+
+    // ==================== Mixed Samples ====================
+
+    #[test]
+    fn test_should_replace_only_bad_samples_in_mixed_input() {
+        // Given: A buffer with normal samples interleaved with NaN and Inf
+        let input_values: Vec<f32> = vec![
+            0.25,            // normal — keep
+            f32::NAN,        // bad — replace
+            -0.75,           // normal — keep
+            f32::INFINITY,   // bad — replace
+            0.0,             // normal — keep
+            f32::NEG_INFINITY, // bad — replace
+            0.99,            // normal — keep
+        ];
+        let raw: Vec<u8> = input_values.iter().flat_map(|s| f32_to_bytes(*s)).collect();
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: Only NaN/Inf samples are replaced with 0.0; normal samples unchanged
+        assert_eq!(result.len(), raw.len());
+
+        let expected: Vec<f32> = vec![0.25, 0.0, -0.75, 0.0, 0.0, 0.0, 0.99];
+        for (i, &exp) in expected.iter().enumerate() {
+            let actual = f32_from_bytes(&result, i * 4);
+            assert_eq!(
+                actual, exp,
+                "Sample at index {}: expected {} but got {}",
+                i, exp, actual
+            );
+        }
+    }
+
+    // ==================== Empty Input ====================
+
+    #[test]
+    fn test_should_return_empty_for_empty_input() {
+        // Given: An empty byte slice
+        let raw: &[u8] = &[];
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(raw);
+
+        // Then: Result is also empty
+        assert!(result.is_empty(), "Empty input should produce empty output");
+    }
+
+    // ==================== Trailing Bytes ====================
+
+    #[test]
+    fn test_should_preserve_trailing_bytes_when_not_aligned() {
+        // Given: Two complete f32 samples followed by 2 trailing bytes
+        let sample1 = 0.5f32;
+        let sample2 = f32::NAN;
+        let trailing: [u8; 2] = [0xAB, 0xCD];
+
+        let mut raw: Vec<u8> = Vec::new();
+        raw.extend_from_slice(&f32_to_bytes(sample1));
+        raw.extend_from_slice(&f32_to_bytes(sample2));
+        raw.extend_from_slice(&trailing);
+        assert_eq!(raw.len(), 10); // 4 + 4 + 2
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: First sample is unchanged, NaN is replaced, trailing bytes preserved
+        assert_eq!(result.len(), 10);
+
+        // Check first sample (normal — unchanged)
+        let val0 = f32_from_bytes(&result, 0);
+        assert_eq!(val0, 0.5f32, "Normal sample should pass through unchanged");
+
+        // Check second sample (NaN — replaced with 0.0)
+        let val1 = f32_from_bytes(&result, 4);
+        assert_eq!(val1, 0.0f32, "NaN sample should be replaced with 0.0");
+
+        // Check trailing bytes are preserved exactly
+        assert_eq!(
+            &result[8..10],
+            &trailing,
+            "Trailing bytes should be copied as-is"
+        );
+    }
+
+    // ==================== Subnormal Values ====================
+
+    #[test]
+    fn test_should_pass_through_subnormal_values() {
+        // Given: A buffer of subnormal (denormalized) f32 values
+        // These are tiny but finite values that is_normal() would reject
+        let subnormals: Vec<f32> = vec![f32::MIN_POSITIVE / 2.0, -f32::MIN_POSITIVE / 2.0, 1.0e-40];
+        let raw: Vec<u8> = subnormals.iter().flat_map(|s| s.to_le_bytes()).collect();
+
+        // When: sanitize_f32_samples is called
+        let result = sanitize_f32_samples(&raw);
+
+        // Then: Subnormal values pass through unchanged (is_finite, not is_normal)
+        assert_eq!(result.len(), raw.len());
+        for (i, &expected) in subnormals.iter().enumerate() {
+            let actual = f32_from_bytes(&result, i * 4);
+            assert_eq!(
+                actual, expected,
+                "Subnormal at index {} should pass through unchanged",
+                i
+            );
+        }
+    }
+
+    // ==================== FFmpeg Integration ====================
+
+    #[test]
+    fn test_ffmpeg_rejects_nan_but_accepts_sanitized() {
+        use std::io::Write;
+        use std::process::Command;
+
+        // Generate 1 second of stereo 48kHz f32le audio with NaN/Inf scattered throughout
+        let sample_rate = 48000u32;
+        let channels = 2u32;
+        let duration_secs = 1;
+        let total_samples = (sample_rate * channels * duration_secs) as usize;
+
+        let mut raw_with_nan: Vec<u8> = Vec::with_capacity(total_samples * 4);
+        for i in 0..total_samples {
+            let sample: f32 = match i % 100 {
+                0 => f32::NAN,
+                50 => f32::INFINITY,
+                75 => f32::NEG_INFINITY,
+                _ => (i as f32 / total_samples as f32 * 2.0 - 1.0) * 0.5, // normal audio-like signal
+            };
+            raw_with_nan.extend_from_slice(&sample.to_le_bytes());
+        }
+
+        // Verify FFmpeg is available
+        let ffmpeg_check = Command::new("ffmpeg").arg("-version").output();
+        if ffmpeg_check.is_err() {
+            eprintln!("Skipping FFmpeg integration test: ffmpeg not found on PATH");
+            return;
+        }
+
+        let unsanitized_path =
+            format!("/tmp/d3motap3_test_nan_unsanitized_{}.raw", std::process::id());
+        let sanitized_path =
+            format!("/tmp/d3motap3_test_nan_sanitized_{}.raw", std::process::id());
+
+        // Write unsanitized data (contains NaN/Inf)
+        {
+            let mut f = std::fs::File::create(&unsanitized_path).unwrap();
+            f.write_all(&raw_with_nan).unwrap();
+        }
+
+        // Write sanitized data (NaN/Inf replaced with 0.0)
+        let sanitized_data = sanitize_f32_samples(&raw_with_nan);
+        {
+            let mut f = std::fs::File::create(&sanitized_path).unwrap();
+            f.write_all(&sanitized_data).unwrap();
+        }
+
+        // Run FFmpeg on UNSANITIZED data — should fail with NaN error
+        let unsanitized_result = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "f32le",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-i",
+                &unsanitized_path,
+                "-c:a",
+                "aac",
+                "-f",
+                "null",
+                "-",
+            ])
+            .output()
+            .expect("failed to run ffmpeg");
+
+        let unsanitized_stderr = String::from_utf8_lossy(&unsanitized_result.stderr);
+        // FFmpeg should complain about NaN/Inf in the input
+        assert!(
+            !unsanitized_result.status.success()
+                || unsanitized_stderr.contains("NaN")
+                || unsanitized_stderr.contains("Inf"),
+            "FFmpeg should reject or warn about NaN audio data. Exit code: {:?}, stderr: {}",
+            unsanitized_result.status.code(),
+            &unsanitized_stderr[..std::cmp::min(unsanitized_stderr.len(), 500)]
+        );
+
+        // Run FFmpeg on SANITIZED data — should succeed
+        let sanitized_result = Command::new("ffmpeg")
+            .args([
+                "-y",
+                "-f",
+                "f32le",
+                "-ar",
+                "48000",
+                "-ac",
+                "2",
+                "-i",
+                &sanitized_path,
+                "-c:a",
+                "aac",
+                "-f",
+                "null",
+                "-",
+            ])
+            .output()
+            .expect("failed to run ffmpeg");
+
+        let sanitized_stderr = String::from_utf8_lossy(&sanitized_result.stderr);
+        assert!(
+            sanitized_result.status.success(),
+            "FFmpeg should successfully encode sanitized audio. Exit code: {:?}, stderr: {}",
+            sanitized_result.status.code(),
+            &sanitized_stderr[..std::cmp::min(sanitized_stderr.len(), 500)]
+        );
+
+        // Verify no NaN warnings in sanitized encoding
+        assert!(
+            !sanitized_stderr.contains("NaN")
+                && !sanitized_stderr.contains("contains (near) NaN"),
+            "Sanitized audio should not produce NaN warnings. stderr: {}",
+            &sanitized_stderr[..std::cmp::min(sanitized_stderr.len(), 500)]
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_file(&unsanitized_path);
+        let _ = std::fs::remove_file(&sanitized_path);
+    }
 }
