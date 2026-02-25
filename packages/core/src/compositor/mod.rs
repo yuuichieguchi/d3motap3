@@ -55,6 +55,25 @@ struct Rect {
     height: usize,
 }
 
+/// Compute dimensions that preserve source aspect ratio within a bounding box.
+/// Returns (fitted_width, fitted_height).
+fn fit_dimensions(src_w: usize, src_h: usize, box_w: usize, box_h: usize) -> (usize, usize) {
+    // S-2: Fast path for exact integer aspect ratio match (avoids f32 precision issues)
+    if src_w * box_h == src_h * box_w {
+        return (box_w, box_h);
+    }
+    let src_aspect = src_w as f32 / src_h as f32;
+    let box_aspect = box_w as f32 / box_h as f32;
+    if src_aspect > box_aspect {
+        // Source wider → fit to width, letterbox vertically
+        // S-1: Round instead of truncate for balanced centering
+        (box_w, (box_w as f32 / src_aspect + 0.5) as usize)
+    } else {
+        // Source taller → fit to height, pillarbox horizontally
+        ((box_h as f32 * src_aspect + 0.5) as usize, box_h)
+    }
+}
+
 /// Compositor that combines multiple source frames into a single output.
 pub struct Compositor {
     output_width: usize,
@@ -97,12 +116,7 @@ impl Compositor {
         match layout {
             Layout::Single { source } => {
                 if let Some(frame) = frames.get(source) {
-                    let rect = Rect {
-                        x: 0,
-                        y: 0,
-                        width: self.output_width,
-                        height: self.output_height,
-                    };
+                    let rect = self.fit_rect(frame, 0, 0, self.output_width, self.output_height);
                     self.blit_scaled(frame, &rect);
                 }
             }
@@ -111,21 +125,11 @@ impl Compositor {
                 let right_width = self.output_width - left_width;
 
                 if let Some(frame) = frames.get(left) {
-                    let rect = Rect {
-                        x: 0,
-                        y: 0,
-                        width: left_width,
-                        height: self.output_height,
-                    };
+                    let rect = self.fit_rect(frame, 0, 0, left_width, self.output_height);
                     self.blit_scaled(frame, &rect);
                 }
                 if let Some(frame) = frames.get(right) {
-                    let rect = Rect {
-                        x: left_width,
-                        y: 0,
-                        width: right_width,
-                        height: self.output_height,
-                    };
+                    let rect = self.fit_rect(frame, left_width, 0, right_width, self.output_height);
                     self.blit_scaled(frame, &rect);
                 }
             }
@@ -135,14 +139,9 @@ impl Compositor {
                 pip_position,
                 pip_scale,
             } => {
-                // Primary fills the whole output
+                // Primary fills the output, preserving aspect ratio
                 if let Some(frame) = frames.get(primary) {
-                    let rect = Rect {
-                        x: 0,
-                        y: 0,
-                        width: self.output_width,
-                        height: self.output_height,
-                    };
+                    let rect = self.fit_rect(frame, 0, 0, self.output_width, self.output_height);
                     self.blit_scaled(frame, &rect);
                 }
                 // PiP overlay
@@ -153,15 +152,12 @@ impl Compositor {
                     let scale = pip_scale.clamp(0.1, 0.5);
                     let max_pip_w = (self.output_width as f32) * scale;
                     let max_pip_h = (self.output_height as f32) * scale;
-                    let src_aspect = frame.width as f32 / frame.height as f32;
-                    let box_aspect = max_pip_w / max_pip_h;
-                    let (pip_w, pip_h) = if src_aspect > box_aspect {
-                        // Source is wider than box -> fit to width
-                        (max_pip_w as usize, (max_pip_w / src_aspect) as usize)
-                    } else {
-                        // Source is taller than box -> fit to height
-                        ((max_pip_h * src_aspect) as usize, max_pip_h as usize)
-                    };
+                    let (pip_w, pip_h) = fit_dimensions(
+                        frame.width,
+                        frame.height,
+                        max_pip_w as usize,
+                        max_pip_h as usize,
+                    );
                     let margin = 16usize;
 
                     let (px, py) = match pip_position {
@@ -236,6 +232,25 @@ impl Compositor {
         }
 
         &self.output_buffer
+    }
+
+    /// Calculate a destination Rect that preserves the source frame's aspect ratio
+    /// within the given panel bounds, centering with letterbox/pillarbox.
+    fn fit_rect(
+        &self,
+        frame: &CapturedFrame,
+        panel_x: usize,
+        panel_y: usize,
+        panel_w: usize,
+        panel_h: usize,
+    ) -> Rect {
+        if frame.width == 0 || frame.height == 0 || panel_w == 0 || panel_h == 0 {
+            return Rect { x: panel_x, y: panel_y, width: 0, height: 0 };
+        }
+        let (fit_w, fit_h) = fit_dimensions(frame.width, frame.height, panel_w, panel_h);
+        let x = panel_x + (panel_w.saturating_sub(fit_w)) / 2;
+        let y = panel_y + (panel_h.saturating_sub(fit_h)) / 2;
+        Rect { x, y, width: fit_w, height: fit_h }
     }
 
     /// Nearest-neighbor scale blit from source frame to destination rectangle.
@@ -860,5 +875,121 @@ mod tests {
         // Top-left should be red (primary rendered successfully)
         assert_eq!(output[2], 255, "primary R");
         assert_eq!(output[1], 0, "primary G");
+    }
+
+    // ==================== Aspect-Ratio Preserving Layout (RED phase) ====================
+
+    #[test]
+    fn test_fit_rect_preserves_landscape_in_square_panel() {
+        // Landscape 16:9 source in a square panel should be letterboxed (fit to width).
+        let comp = Compositor::new(200, 200);
+        let frame = make_solid_frame(160, 90, 0, 255, 0, 255); // green, 16:9
+
+        let rect = comp.fit_rect(&frame, 0, 0, 200, 200);
+
+        assert_eq!(rect.width, 200, "fit_rect landscape width");
+        assert_eq!(rect.height, 113, "fit_rect landscape height");
+        assert_eq!(rect.x, 0, "fit_rect landscape x");
+        assert_eq!(rect.y, 43, "fit_rect landscape y");
+    }
+
+    #[test]
+    fn test_fit_rect_preserves_portrait_in_square_panel() {
+        // Portrait 9:16 source in a square panel should be pillarboxed (fit to height).
+        let comp = Compositor::new(200, 200);
+        let frame = make_solid_frame(90, 160, 0, 0, 255, 255); // red, 9:16
+
+        let rect = comp.fit_rect(&frame, 0, 0, 200, 200);
+
+        assert_eq!(rect.width, 113, "fit_rect portrait width");
+        assert_eq!(rect.height, 200, "fit_rect portrait height");
+        assert_eq!(rect.x, 43, "fit_rect portrait x");
+        assert_eq!(rect.y, 0, "fit_rect portrait y");
+    }
+
+    #[test]
+    fn test_side_by_side_preserves_aspect_ratio() {
+        // 16:9 output with a landscape left source and portrait right source.
+        // Both panels should preserve aspect ratio with letterbox/pillarbox.
+        let mut comp = Compositor::new(1920, 1080);
+
+        let left_frame = make_solid_frame(1920, 1080, 0, 0, 255, 255); // red, 16:9
+        let right_frame = make_solid_frame(1080, 1920, 0, 255, 0, 255); // green, 9:16
+
+        let mut frames: HashMap<u32, Arc<CapturedFrame>> = HashMap::new();
+        frames.insert(1, left_frame);
+        frames.insert(2, right_frame);
+
+        let layout = Layout::SideBySide {
+            left: 1,
+            right: 2,
+            ratio: 0.5,
+        };
+        let output = comp.compose(&layout, &frames);
+
+        // Left panel: 960x1080, source 16:9 (aspect=1.778)
+        // panel_aspect = 960/1080 = 0.889, src_aspect > panel_aspect => fit to width
+        // fit_w = 960, fit_h = 960 / 1.778 = 540, y_offset = (1080-540)/2 = 270
+        // Left source occupies y=[270..810] within x=[0..960]
+
+        // Right panel: starts at x=960, 960x1080, source 9:16 (aspect=0.5625)
+        // panel_aspect = 0.889, src_aspect < panel_aspect => fit to height
+        // fit_h = 1080, fit_w = 1080 * 0.5625 = 607, x_offset = (960-607)/2 = 176
+        // Right source occupies x=[960+176..960+176+607] = [1136..1743]
+
+        // Left panel letterbox: pixel at (480, 0) should be black
+        let off = (0 * 1920 + 480) * 4;
+        assert_eq!(output[off], 0, "left letterbox B");
+        assert_eq!(output[off + 1], 0, "left letterbox G");
+        assert_eq!(output[off + 2], 0, "left letterbox R");
+        assert_eq!(output[off + 3], 255, "left letterbox A");
+
+        // Left panel content: pixel at (480, 540) should be red
+        let off = (540 * 1920 + 480) * 4;
+        assert_eq!(output[off + 2], 255, "left content R");
+        assert_eq!(output[off + 1], 0, "left content G");
+
+        // Right panel pillarbox: pixel at (960, 540) should be black
+        let off = (540 * 1920 + 960) * 4;
+        assert_eq!(output[off], 0, "right pillarbox B");
+        assert_eq!(output[off + 1], 0, "right pillarbox G");
+        assert_eq!(output[off + 2], 0, "right pillarbox R");
+        assert_eq!(output[off + 3], 255, "right pillarbox A");
+
+        // Right panel content: pixel at (1200, 540) should be green
+        let off = (540 * 1920 + 1200) * 4;
+        assert_eq!(output[off + 1], 255, "right content G");
+        assert_eq!(output[off + 2], 0, "right content R");
+    }
+
+    #[test]
+    fn test_single_preserves_aspect_ratio() {
+        // Portrait 9:16 source in a 16:9 output should be pillarboxed.
+        let mut comp = Compositor::new(1920, 1080);
+
+        let frame = make_solid_frame(1080, 1920, 0, 255, 0, 255); // green, 9:16
+
+        let mut frames: HashMap<u32, Arc<CapturedFrame>> = HashMap::new();
+        frames.insert(1, frame);
+
+        let layout = Layout::Single { source: 1 };
+        let output = comp.compose(&layout, &frames);
+
+        // Panel is full output: 1920x1080, source 9:16 (aspect=0.5625)
+        // panel_aspect = 1920/1080 = 1.778, src_aspect < panel_aspect => fit to height
+        // fit_h = 1080, fit_w = 1080 * 0.5625 = 607, x_offset = (1920-607)/2 = 656
+        // Source occupies x=[656..1263]
+
+        // Pillarbox area: pixel at (0, 540) should be black
+        let off = (540 * 1920 + 0) * 4;
+        assert_eq!(output[off], 0, "pillarbox B");
+        assert_eq!(output[off + 1], 0, "pillarbox G");
+        assert_eq!(output[off + 2], 0, "pillarbox R");
+        assert_eq!(output[off + 3], 255, "pillarbox A");
+
+        // Content area: pixel at (960, 540) should be green
+        let off = (540 * 1920 + 960) * 4;
+        assert_eq!(output[off + 1], 255, "content G");
+        assert_eq!(output[off + 2], 0, "content R");
     }
 }
