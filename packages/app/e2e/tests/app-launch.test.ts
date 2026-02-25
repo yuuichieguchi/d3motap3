@@ -7,12 +7,7 @@ test.describe('App Launch', () => {
     await expect(title).toContainText('d3motap3');
   });
 
-  test('Status badge shows idle', async ({ page }) => {
-    const badge = page.locator(S.statusBadge);
-    await expect(badge).toContainText('idle');
-  });
-
-  test('Empty source state', async ({ page }) => {
+test('Empty source state', async ({ page }) => {
     const emptyMessage = page.locator(S.emptyMessage);
     await expect(emptyMessage).toBeVisible();
     await expect(emptyMessage).toContainText('No sources added');

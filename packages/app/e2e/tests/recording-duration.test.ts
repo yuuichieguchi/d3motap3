@@ -11,7 +11,7 @@ test.describe('Recording Duration Accuracy', () => {
     const addResult = await page.evaluate(async () => {
       try {
         const id = await (window as any).api.invoke('sources:add', 'display', JSON.stringify({
-          type: 'display',
+          type: 'Display',
           display_index: 0,
           width: 1280,
           height: 720,
@@ -33,8 +33,8 @@ test.describe('Recording Duration Accuracy', () => {
     // Step 2: Set layout to single source
     await page.evaluate(async (srcId) => {
       await (window as any).api.invoke('layout:set', JSON.stringify({
-        type: 'single',
-        sources: [{ source_id: srcId }],
+        type: 'Single',
+        source: srcId,
       }))
     }, sourceId)
 
