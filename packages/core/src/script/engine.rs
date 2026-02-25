@@ -186,6 +186,9 @@ fn execute_script(yaml_path: &str, output_path: &str) -> Result<(), String> {
         output_path: output_path.to_string(),
         format: "mp4".to_string(),
         quality: "high".to_string(),
+        capture_system_audio: false,
+        capture_microphone: false,
+        microphone_device_id: None,
     })?;
 
     // 6. Execute steps sequentially

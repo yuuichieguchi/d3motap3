@@ -5,6 +5,7 @@
 //! and this module polls those frames at the configured fps and pipes
 //! them into an `FfmpegEncoder` running on a dedicated thread.
 
+use crate::audio;
 use crate::capture;
 use crate::capture::source::{with_registry, SourceId};
 use crate::compositor::{Compositor, Layout};
@@ -263,6 +264,9 @@ pub struct RecordingConfigV2 {
     pub output_path: String,
     pub format: String,
     pub quality: String,
+    pub capture_system_audio: bool,
+    pub capture_microphone: bool,
+    pub microphone_device_id: Option<String>,
 }
 
 static RECORDING_V2_STATE: LazyLock<Mutex<Option<RecordingHandleV2>>> =
@@ -273,6 +277,10 @@ struct RecordingHandleV2 {
     collector_thread: Option<thread::JoinHandle<()>>,
     encoder_thread: Option<thread::JoinHandle<Result<RecordingResult, String>>>,
     start_time: Instant,
+    audio_recorder: Option<audio::system::AudioRecorder>,
+    audio_sample_rate: u32,
+    audio_channel_count: u32,
+    final_output_path: PathBuf,
 }
 
 pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> {
@@ -311,10 +319,44 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
     RECORDING_V2_ACTIVE.store(true, Ordering::Relaxed);
     let start_time = Instant::now();
 
+    // Audio setup
+    let audio_config = audio::AudioConfig {
+        capture_system_audio: config.capture_system_audio,
+        capture_microphone: config.capture_microphone,
+        microphone_device_id: config.microphone_device_id.clone(),
+        ..audio::AudioConfig::default()
+    };
+    let audio_enabled = audio_config.is_enabled() && format != OutputFormat::Gif;
+
+    let audio_recorder = if audio_enabled {
+        let base_path = std::path::Path::new(&config.output_path);
+        Some(audio::system::AudioRecorder::start(&audio_config, base_path)
+            .map_err(|e| {
+                RECORDING_V2_ACTIVE.store(false, Ordering::Relaxed);
+                format!("Failed to start audio recorder: {}", e)
+            })?)
+    } else {
+        None
+    };
+
+    let final_output_path = PathBuf::from(&config.output_path);
+    let video_output_path = if audio_enabled {
+        // Video goes to temp file; post-mux will produce the final output
+        let mut temp = final_output_path.clone();
+        let stem = temp.file_stem().unwrap_or_default().to_os_string();
+        let ext = temp.extension().unwrap_or_default().to_os_string();
+        let mut new_name = stem;
+        new_name.push(".temp_video.");
+        new_name.push(&ext);
+        temp.set_file_name(new_name);
+        temp.to_string_lossy().into_owned()
+    } else {
+        config.output_path.clone()
+    };
+
     let width = config.output_width;
     let height = config.output_height;
     let fps = config.fps;
-    let output_path = config.output_path.clone();
 
     // Shared buffer manager between collector and encoder threads
     let buffer_manager = Arc::new(Mutex::new(SourceBufferManager::new(fps)));
@@ -374,7 +416,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
             width,
             height,
             fps,
-            output_path: PathBuf::from(&output_path),
+            output_path: PathBuf::from(&video_output_path),
             format,
             quality,
             bytes_per_row: None, // Compositor output is tightly packed
@@ -469,6 +511,10 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         collector_thread: Some(collector_thread),
         encoder_thread: Some(encoder_thread),
         start_time,
+        audio_recorder,
+        audio_sample_rate: audio_config.sample_rate,
+        audio_channel_count: audio_config.channel_count,
+        final_output_path,
     });
 
     Ok(())
@@ -499,9 +545,61 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
         .take()
         .ok_or_else(|| "No encoder thread".to_string())?;
 
-    encoder
+    // Get encoder result (but don't propagate error yet)
+    let encoder_result = encoder
         .join()
-        .map_err(|_| "Encoder thread panicked".to_string())?
+        .map_err(|_| "Encoder thread panicked".to_string())
+        .and_then(|r| r);
+
+    // Always stop audio recorder first, regardless of encoder result
+    let audio_temp = if let Some(audio_recorder) = handle.audio_recorder {
+        match audio_recorder.stop() {
+            Ok(temp) => Some(temp),
+            Err(e) => {
+                eprintln!("[audio] Warning: failed to stop audio recorder: {}", e);
+                None
+            }
+        }
+    } else {
+        None
+    };
+
+    // Now propagate encoder errors
+    let mut result = encoder_result?;
+
+    // Post-mux: combine video and audio if audio was captured
+    if let Some(audio_temp) = audio_temp {
+        if audio_temp.has_audio() {
+            let video_temp_path = std::path::Path::new(&result.output_path);
+            let format = match result.format.as_str() {
+                "mp4" => crate::encoder::OutputFormat::Mp4,
+                "webm" => crate::encoder::OutputFormat::WebM,
+                _ => crate::encoder::OutputFormat::Mp4,
+            };
+
+            let mux_result = crate::encoder::mux_audio_video(
+                video_temp_path,
+                audio_temp.system_audio_path_if_nonempty().map(|p| p.as_path()),
+                audio_temp.mic_audio_path_if_nonempty().map(|p| p.as_path()),
+                handle.audio_sample_rate,
+                handle.audio_channel_count,
+                format,
+                &handle.final_output_path,
+            );
+
+            // Always clean up temp files
+            let _ = std::fs::remove_file(video_temp_path);
+            audio_temp.cleanup();
+
+            // Propagate mux error after cleanup
+            mux_result?;
+
+            // Update result to point to the final output
+            result.output_path = handle.final_output_path.to_string_lossy().into_owned();
+        }
+    }
+
+    Ok(result)
 }
 
 pub fn get_recording_v2_elapsed_ms() -> u64 {

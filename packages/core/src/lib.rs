@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate napi_derive;
 
+mod audio;
 mod capture;
 mod compositor;
 mod encoder;
@@ -369,6 +370,29 @@ pub fn get_preview_frame(max_width: u32, max_height: u32) -> Option<napi::bindge
 }
 
 // -------------------------------------------------------------------------
+// Audio Devices
+// -------------------------------------------------------------------------
+
+#[napi(object)]
+pub struct AudioDeviceInfoJs {
+    pub id: String,
+    pub name: String,
+    pub is_default: bool,
+}
+
+#[napi]
+pub fn list_audio_input_devices() -> Vec<AudioDeviceInfoJs> {
+    audio::list_audio_input_devices()
+        .into_iter()
+        .map(|d| AudioDeviceInfoJs {
+            id: d.id,
+            name: d.name,
+            is_default: d.is_default,
+        })
+        .collect()
+}
+
+// -------------------------------------------------------------------------
 // Recording Pipeline V2 (multi-source)
 // -------------------------------------------------------------------------
 
@@ -380,6 +404,9 @@ pub fn start_recording_v2(
     output_path: String,
     format: String,
     quality: String,
+    capture_system_audio: bool,
+    capture_microphone: bool,
+    microphone_device_id: Option<String>,
 ) -> napi::Result<()> {
     recording::start_recording_v2_impl(recording::RecordingConfigV2 {
         output_width,
@@ -388,6 +415,9 @@ pub fn start_recording_v2(
         output_path,
         format,
         quality,
+        capture_system_audio,
+        capture_microphone,
+        microphone_device_id,
     })
     .map_err(|e| napi::Error::from_reason(e))
 }

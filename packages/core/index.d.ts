@@ -57,7 +57,13 @@ export interface WebcamInfoJs {
 export declare function listWebcams(): Array<WebcamInfoJs>
 export declare function setLayout(layoutJson: string): void
 export declare function getPreviewFrame(maxWidth: number, maxHeight: number): Buffer | null
-export declare function startRecordingV2(outputWidth: number, outputHeight: number, fps: number, outputPath: string, format: string, quality: string): void
+export interface AudioDeviceInfoJs {
+  id: string
+  name: string
+  isDefault: boolean
+}
+export declare function listAudioInputDevices(): Array<AudioDeviceInfoJs>
+export declare function startRecordingV2(outputWidth: number, outputHeight: number, fps: number, outputPath: string, format: string, quality: string, captureSystemAudio: boolean, captureMicrophone: boolean, microphoneDeviceId?: string | undefined | null): void
 export declare function stopRecordingV2(): RecordingResultInfo
 export declare function getRecordingV2ElapsedMs(): number
 export declare function isRecordingV2(): boolean
