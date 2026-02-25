@@ -446,19 +446,10 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
             }
         }
         if let Err(e) = encoder.write_frame(&composed_owned) {
-            if e.contains(crate::encoder::BROKEN_PIPE_MARKER) {
-                return Ok(RecordingResult {
-                    output_path: output_path.clone(),
-                    frame_count: 0,
-                    duration_ms: start_time.elapsed().as_millis() as u64,
-                    format: format.extension().to_string(),
-                });
-            }
             return Err(e);
         }
 
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
-        let mut broken_pipe = false;
 
         // Main encoding loop
         while RECORDING_V2_ACTIVE.load(Ordering::Relaxed) {
@@ -490,10 +481,6 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
                     }
                 }
                 if let Err(e) = encoder.write_frame(&composed_owned) {
-                    if e.contains(crate::encoder::BROKEN_PIPE_MARKER) {
-                        broken_pipe = true;
-                        break;
-                    }
                     return Err(e);
                 }
             }
@@ -501,17 +488,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
             thread::sleep(frame_interval);
         }
 
-        let result = if broken_pipe {
-            // FFmpeg already exited; skip finish() which would fail.
-            drop(encoder);
-            crate::encoder::EncoderResult {
-                output_path: output_path.clone(),
-                frame_count: 0,
-                format: format.extension().to_string(),
-            }
-        } else {
-            encoder.finish()?
-        };
+        let result = encoder.finish()?;
         let duration_ms = start_time.elapsed().as_millis() as u64;
 
         Ok(RecordingResult {

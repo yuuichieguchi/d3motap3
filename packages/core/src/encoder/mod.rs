@@ -130,11 +130,12 @@ impl FfmpegEncoder {
         let mut args: Vec<String> = Vec::new();
 
         // -- Global flags --
-        push_args(&mut args, &["-y", "-hide_banner", "-loglevel", "error"]);
+        let has_audio = config.audio_fifo_path.is_some();
+        let loglevel = if has_audio { "warning" } else { "error" };
+        push_args(&mut args, &["-y", "-hide_banner", "-loglevel", loglevel]);
 
         // -- Video input specification --
         push_args(&mut args, &[
-            "-thread_queue_size", "1024",
             "-f", "rawvideo",
             "-pixel_format", "bgra",
             "-video_size", &video_size,
@@ -143,14 +144,12 @@ impl FfmpegEncoder {
         ]);
 
         // -- Audio input (from named FIFO) --
-        let has_audio = config.audio_fifo_path.is_some();
         if let Some(ref fifo_path) = config.audio_fifo_path {
             let fifo_str = fifo_path.to_str()
                 .ok_or_else(|| "Audio FIFO path contains invalid UTF-8".to_string())?;
             let sr = config.audio_sample_rate.to_string();
             let ch = config.audio_channel_count.to_string();
             push_args(&mut args, &[
-                "-thread_queue_size", "1024",
                 "-f", "f32le",
                 "-ar", &sr,
                 "-ac", &ch,

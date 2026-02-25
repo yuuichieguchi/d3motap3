@@ -176,6 +176,7 @@ pub fn editor_thumbnails(
                 "-i", &path,
                 "-vframes", "1",
                 "-vf", &scale_filter,
+                "-pix_fmt", "yuvj420p",
                 "-f", "image2pipe",
                 "-vcodec", "mjpeg",
                 "pipe:1",
