@@ -7,6 +7,9 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 
+/// Marker substring in error messages indicating FFmpeg exited (broken pipe).
+pub const BROKEN_PIPE_MARKER: &str = "[BROKEN_PIPE]";
+
 // ---------------------------------------------------------------------------
 // Configuration types
 // ---------------------------------------------------------------------------
@@ -131,6 +134,7 @@ impl FfmpegEncoder {
 
         // -- Video input specification --
         push_args(&mut args, &[
+            "-thread_queue_size", "1024",
             "-f", "rawvideo",
             "-pixel_format", "bgra",
             "-video_size", &video_size,
@@ -146,6 +150,7 @@ impl FfmpegEncoder {
             let sr = config.audio_sample_rate.to_string();
             let ch = config.audio_channel_count.to_string();
             push_args(&mut args, &[
+                "-thread_queue_size", "1024",
                 "-f", "f32le",
                 "-ar", &sr,
                 "-ac", &ch,
@@ -207,11 +212,6 @@ impl FfmpegEncoder {
             }
         }
 
-        // -- Shortest flag (stop when the shorter stream ends) --
-        if has_audio {
-            push_args(&mut args, &["-shortest"]);
-        }
-
         // -- Output path --
         let output_str = config
             .output_path
@@ -263,21 +263,45 @@ impl FfmpegEncoder {
             .as_mut()
             .ok_or_else(|| "FFmpeg stdin is not available (process may have exited)".to_string())?;
 
-        if self.src_stride == self.row_bytes {
+        let write_result = if self.src_stride == self.row_bytes {
             // Tightly packed -- single write for the whole frame.
             let tight_size = self.height as usize * self.row_bytes;
-            stdin
-                .write_all(&frame_data[..tight_size])
-                .map_err(|e| format!("Failed to write frame to FFmpeg: {}", e))?;
+            stdin.write_all(&frame_data[..tight_size])
         } else {
             // Source has row padding -- strip it by writing row-by-row.
+            let mut result = Ok(());
             for y in 0..self.height as usize {
                 let start = y * self.src_stride;
                 let end = start + self.row_bytes;
-                stdin
-                    .write_all(&frame_data[start..end])
-                    .map_err(|e| format!("Failed to write frame row {} to FFmpeg: {}", y, e))?;
+                result = stdin.write_all(&frame_data[start..end]);
+                if result.is_err() {
+                    break;
+                }
             }
+            result
+        };
+
+        if let Err(e) = write_result {
+            if e.kind() == std::io::ErrorKind::BrokenPipe {
+                // FFmpeg process likely exited; check for stderr output
+                let stderr_hint = self
+                    .process
+                    .stderr
+                    .as_mut()
+                    .and_then(|err| {
+                        let mut buf = [0u8; 1024];
+                        std::io::Read::read(err, &mut buf).ok().map(|n| {
+                            String::from_utf8_lossy(&buf[..n]).to_string()
+                        })
+                    })
+                    .unwrap_or_default();
+                return Err(format!(
+                    "{} FFmpeg process exited unexpectedly (broken pipe). stderr: {}",
+                    BROKEN_PIPE_MARKER,
+                    if stderr_hint.is_empty() { "(empty)" } else { &stderr_hint }
+                ));
+            }
+            return Err(format!("Failed to write frame to FFmpeg: {}", e));
         }
 
         self.frame_count += 1;

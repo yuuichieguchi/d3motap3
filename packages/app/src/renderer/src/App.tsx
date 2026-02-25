@@ -216,24 +216,30 @@ export function App() {
             {/* Audio Capture (not available for GIF) */}
             {store.format !== 'gif' && (
               <>
-                <div className="control-group">
+                <div className="control-group toggle">
                   <label>System Audio</label>
-                  <input
-                    type="checkbox"
-                    checked={store.captureSystemAudio}
-                    onChange={(e) => store.setCaptureSystemAudio(e.target.checked)}
-                    disabled={isRecording || isProcessing}
-                  />
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={store.captureSystemAudio}
+                      onChange={(e) => store.setCaptureSystemAudio(e.target.checked)}
+                      disabled={isRecording || isProcessing}
+                    />
+                    <span className="toggle-slider" />
+                  </label>
                 </div>
 
-                <div className="control-group">
+                <div className="control-group toggle">
                   <label>Microphone</label>
-                  <input
-                    type="checkbox"
-                    checked={store.captureMicrophone}
-                    onChange={(e) => store.setCaptureMicrophone(e.target.checked)}
-                    disabled={isRecording || isProcessing}
-                  />
+                  <label className="toggle-switch">
+                    <input
+                      type="checkbox"
+                      checked={store.captureMicrophone}
+                      onChange={(e) => store.setCaptureMicrophone(e.target.checked)}
+                      disabled={isRecording || isProcessing}
+                    />
+                    <span className="toggle-slider" />
+                  </label>
                 </div>
 
                 {store.captureMicrophone && store.audioDevices.length > 1 && (

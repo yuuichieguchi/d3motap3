@@ -445,9 +445,20 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
                 );
             }
         }
-        encoder.write_frame(&composed_owned)?;
+        if let Err(e) = encoder.write_frame(&composed_owned) {
+            if e.contains(crate::encoder::BROKEN_PIPE_MARKER) {
+                return Ok(RecordingResult {
+                    output_path: output_path.clone(),
+                    frame_count: 0,
+                    duration_ms: start_time.elapsed().as_millis() as u64,
+                    format: format.extension().to_string(),
+                });
+            }
+            return Err(e);
+        }
 
         let frame_interval = Duration::from_micros(1_000_000 / u64::from(fps));
+        let mut broken_pipe = false;
 
         // Main encoding loop
         while RECORDING_V2_ACTIVE.load(Ordering::Relaxed) {
@@ -478,13 +489,29 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
                         );
                     }
                 }
-                encoder.write_frame(&composed_owned)?;
+                if let Err(e) = encoder.write_frame(&composed_owned) {
+                    if e.contains(crate::encoder::BROKEN_PIPE_MARKER) {
+                        broken_pipe = true;
+                        break;
+                    }
+                    return Err(e);
+                }
             }
 
             thread::sleep(frame_interval);
         }
 
-        let result = encoder.finish()?;
+        let result = if broken_pipe {
+            // FFmpeg already exited; skip finish() which would fail.
+            drop(encoder);
+            crate::encoder::EncoderResult {
+                output_path: output_path.clone(),
+                frame_count: 0,
+                format: format.extension().to_string(),
+            }
+        } else {
+            encoder.finish()?
+        };
         let duration_ms = start_time.elapsed().as_millis() as u64;
 
         Ok(RecordingResult {
@@ -528,6 +555,16 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
         let _ = collector.join();
     }
 
+    // Stop audio capture BEFORE encoder join.
+    // Without -shortest, FFmpeg waits for EOF on all inputs.
+    // encoder.finish() closes video stdin, but FFmpeg also needs
+    // the audio FIFO to reach EOF. Stopping audio capture closes
+    // the FIFO writer, unblocking FFmpeg's wait.
+    #[cfg(target_os = "macos")]
+    if let Some(mut ac) = handle.audio_capture.take() {
+        let _ = ac.stop();
+    }
+
     // Wait for encoder to finish
     let encoder = handle
         .encoder_thread
@@ -537,12 +574,6 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
     let result = encoder
         .join()
         .map_err(|_| "Encoder thread panicked".to_string())?;
-
-    // Stop audio capture after encoder has finished
-    #[cfg(target_os = "macos")]
-    if let Some(mut ac) = handle.audio_capture.take() {
-        let _ = ac.stop();
-    }
 
     result
 }
