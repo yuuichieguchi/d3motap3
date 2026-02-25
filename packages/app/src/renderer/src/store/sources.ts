@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-interface SourceInfo {
+export interface SourceInfo {
   id: number
   name: string
   width: number
@@ -58,6 +58,25 @@ interface SourcesState {
   reorderSources: (fromIndex: number, toIndex: number) => void
 }
 
+export function mergeSourcesPreservingOrder(
+  current: SourceInfo[],
+  fresh: SourceInfo[],
+): SourceInfo[] {
+  const freshMap = new Map(fresh.map((s) => [s.id, s]))
+  const merged: SourceInfo[] = []
+  for (const existing of current) {
+    const updated = freshMap.get(existing.id)
+    if (updated) {
+      merged.push(updated)
+      freshMap.delete(existing.id)
+    }
+  }
+  for (const newSource of freshMap.values()) {
+    merged.push(newSource)
+  }
+  return merged
+}
+
 export const useSourcesStore = create<SourcesState>((set, get) => ({
   activeSources: [],
   availableWindows: [],
@@ -84,8 +103,9 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
     try {
       const configJson = JSON.stringify({ type: sourceType, ...config })
       const sourceId = await window.api.invoke('sources:add', sourceType, configJson) as number
-      const sources = await window.api.invoke('sources:list') as SourceInfo[]
-      set({ activeSources: sources, error: null })
+      const fresh = await window.api.invoke('sources:list') as SourceInfo[]
+      const current = get().activeSources
+      set({ activeSources: mergeSourcesPreservingOrder(current, fresh), error: null })
       return sourceId
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
@@ -97,8 +117,9 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
   removeSource: async (sourceId) => {
     try {
       await window.api.invoke('sources:remove', sourceId)
-      const sources = await window.api.invoke('sources:list') as SourceInfo[]
-      set({ activeSources: sources, error: null })
+      const fresh = await window.api.invoke('sources:list') as SourceInfo[]
+      const current = get().activeSources
+      set({ activeSources: mergeSourcesPreservingOrder(current, fresh), error: null })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       set({ error: message })
@@ -107,8 +128,9 @@ export const useSourcesStore = create<SourcesState>((set, get) => ({
 
   refreshSources: async () => {
     try {
-      const sources = await window.api.invoke('sources:list') as SourceInfo[]
-      set({ activeSources: sources, error: null })
+      const fresh = await window.api.invoke('sources:list') as SourceInfo[]
+      const current = get().activeSources
+      set({ activeSources: mergeSourcesPreservingOrder(current, fresh), error: null })
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       set({ error: message })
