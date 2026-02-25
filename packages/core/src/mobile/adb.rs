@@ -126,6 +126,28 @@ pub fn get_device_resolution(serial: &str) -> Result<(u32, u32), String> {
     parse_resolution_output(&stdout)
 }
 
+/// Wake the device screen if it is off (best-effort).
+pub fn wake_screen(serial: &str) {
+    let adb = match find_adb() {
+        Ok(path) => path,
+        Err(e) => {
+            eprintln!("wake_screen: adb not found: {}", e);
+            return;
+        }
+    };
+    let status = Command::new(adb.as_os_str())
+        .args(["-s", serial, "shell", "input", "keyevent", "KEYCODE_WAKEUP"])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+    match status {
+        Ok(s) if s.success() => {}
+        Ok(s) => eprintln!("wake_screen: adb keyevent exited with {}", s),
+        Err(e) => eprintln!("wake_screen: failed to run adb: {}", e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,5 +201,10 @@ mod tests {
     fn test_parse_resolution_invalid() {
         let result = parse_resolution_output("no size info");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_wake_screen_no_panic_without_device() {
+        wake_screen("nonexistent-device-12345");
     }
 }

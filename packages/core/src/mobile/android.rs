@@ -68,6 +68,9 @@ impl CaptureSource for AndroidCaptureSource {
             return Err("Already active".to_string());
         }
 
+        // Wake the device screen (best-effort, applies to both scrcpy and adb paths)
+        adb::wake_screen(&self.device_serial);
+
         // Try scrcpy first, fall back to adb screenrecord
         let mut process = if let Ok(scrcpy) = find_scrcpy() {
             Command::new(&scrcpy)
@@ -75,6 +78,9 @@ impl CaptureSource for AndroidCaptureSource {
                     &format!("--serial={}", self.device_serial),
                     "--no-display",
                     "--video-codec=h264",
+                    "--video-codec-options=repeat-previous-frame-after=100000",
+                    "--turn-screen-on",
+                    "--stay-awake",
                     "--raw-video=-",
                 ])
                 .stdin(Stdio::null())
