@@ -59,12 +59,20 @@ mod platform {
     type CMSampleBufferRef = *mut c_void;
     type CVImageBufferRef = *mut c_void;
 
+    #[repr(C)]
+    struct CMTime {
+        value: i64,
+        timescale: i32,
+        flags: u32,
+        epoch: i64,
+    }
+
     extern "C" {
         fn CMSampleBufferGetImageBuffer(sbuf: CMSampleBufferRef) -> CVImageBufferRef;
+        fn CMSampleBufferGetPresentationTimeStamp(sbuf: CMSampleBufferRef) -> CMTime;
         fn CVPixelBufferLockBaseAddress(buf: CVImageBufferRef, flags: u64) -> i32;
         fn CVPixelBufferUnlockBaseAddress(buf: CVImageBufferRef, flags: u64) -> i32;
         fn CVPixelBufferGetBaseAddress(buf: CVImageBufferRef) -> *mut u8;
-        fn CVPixelBufferGetDataSize(buf: CVImageBufferRef) -> usize;
         fn CVPixelBufferGetWidth(buf: CVImageBufferRef) -> usize;
         fn CVPixelBufferGetHeight(buf: CVImageBufferRef) -> usize;
         fn CVPixelBufferGetBytesPerRow(buf: CVImageBufferRef) -> usize;
@@ -74,7 +82,13 @@ mod platform {
 
     extern "C" {
         fn dispatch_queue_create(label: *const i8, attr: *const c_void) -> *mut c_void;
+        fn dispatch_sync_f(queue: *mut c_void, context: *mut c_void, work: extern "C" fn(*mut c_void));
+        fn dispatch_release(object: *mut c_void);
     }
+
+    /// No-op work function used as a fence in `dispatch_sync_f` to drain
+    /// the capture queue before tearing down callback state.
+    extern "C" fn empty_fn(_context: *mut c_void) {}
 
     // ---- Enable screen capture devices (one-time) ----
 
@@ -88,7 +102,7 @@ mod platform {
                 scope: CMIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
                 element: CMIO_OBJECT_PROPERTY_ELEMENT_MAIN,
             };
-            CMIOObjectSetPropertyData(
+            let status = CMIOObjectSetPropertyData(
                 CMIO_OBJECT_SYSTEM_OBJECT,
                 &address,
                 0,
@@ -96,6 +110,9 @@ mod platform {
                 std::mem::size_of::<u32>() as u32,
                 &mut allow as *mut u32 as *const c_void,
             );
+            if status != 0 {
+                eprintln!("[d3motap3] WARNING: CMIOObjectSetPropertyData failed (status {})", status);
+            }
         });
     }
 
@@ -126,7 +143,11 @@ mod platform {
     }
 
     fn nsstring_from_str(s: &str) -> *mut Object {
-        let cstr = std::ffi::CString::new(s).unwrap();
+        let cstr = match std::ffi::CString::new(s) {
+            Ok(c) => c,
+            Err(_) => std::ffi::CString::new(s.replace('\0', ""))
+                .expect("CString still failed after NUL removal"),
+        };
         unsafe {
             let cls = class!(NSString);
             msg_send![cls, stringWithUTF8String: cstr.as_ptr()]
@@ -215,14 +236,14 @@ mod platform {
 
     /// Register the Objective-C delegate class once.
     static REGISTER_DELEGATE: Once = Once::new();
-    static mut DELEGATE_CLASS_NAME: &str = "D3motap3IosCaptureDelegate";
+    const DELEGATE_CLASS_NAME: &str = "D3motap3IosCaptureDelegate";
 
     fn ensure_delegate_registered() {
         REGISTER_DELEGATE.call_once(|| {
             use objc::declare::ClassDecl;
 
             let superclass = class!(NSObject);
-            let mut decl = ClassDecl::new(unsafe { DELEGATE_CLASS_NAME }, superclass).unwrap();
+            let mut decl = ClassDecl::new(DELEGATE_CLASS_NAME, superclass).unwrap();
 
             // Add ivar to hold a pointer to CallbackState
             decl.add_ivar::<*mut c_void>("_callbackState");
@@ -242,7 +263,7 @@ mod platform {
                     }
                     let state = &*(state_ptr as *const CallbackState);
 
-                    if !state.is_active.load(Ordering::Relaxed) {
+                    if !state.is_active.load(Ordering::Acquire) {
                         return;
                     }
 
@@ -251,23 +272,31 @@ mod platform {
                         return;
                     }
 
+                    // Extract presentation timestamp from sample buffer
+                    let pts = CMSampleBufferGetPresentationTimeStamp(sample_buffer);
+                    let timestamp_ms = if pts.timescale > 0 {
+                        (pts.value as f64 / pts.timescale as f64) * 1000.0
+                    } else {
+                        0.0
+                    };
+
                     CVPixelBufferLockBaseAddress(image_buffer, 1); // kCVPixelBufferLock_ReadOnly
 
                     let data_ptr = CVPixelBufferGetBaseAddress(image_buffer);
-                    let data_size = CVPixelBufferGetDataSize(image_buffer);
                     let width = CVPixelBufferGetWidth(image_buffer);
                     let height = CVPixelBufferGetHeight(image_buffer);
                     let bytes_per_row = CVPixelBufferGetBytesPerRow(image_buffer);
+                    let safe_size = bytes_per_row.checked_mul(height).unwrap_or(0);
 
-                    if !data_ptr.is_null() && data_size > 0 && width > 0 && height > 0 {
-                        let data = std::slice::from_raw_parts(data_ptr, data_size).to_vec();
+                    if !data_ptr.is_null() && safe_size > 0 && width > 0 && height > 0 {
+                        let data = std::slice::from_raw_parts(data_ptr, safe_size).to_vec();
 
                         let frame = Arc::new(CapturedFrame {
                             data,
                             width,
                             height,
                             bytes_per_row,
-                            timestamp_ms: 0.0,
+                            timestamp_ms,
                         });
 
                         if let Ok(mut latest) = state.latest_frame.lock() {
@@ -336,12 +365,19 @@ mod platform {
         // Objective-C objects (retained)
         session: Option<*mut Object>,
         delegate: Option<*mut Object>,
-        // Prevent CallbackState from being dropped while delegate uses it
-        _callback_state: Option<Box<CallbackState>>,
+        // Dispatch queue for frame callbacks (retained, released in stop())
+        queue: Option<*mut c_void>,
+        // Arc-wrapped so the delegate callback cannot use-after-free even if
+        // a callback is in-flight when stop() begins draining the queue.
+        _callback_state: Option<Arc<CallbackState>>,
     }
 
-    // AVCaptureSession and related ObjC objects are thread-safe when accessed
-    // through synchronized methods. We guard mutation through &mut self.
+    // SAFETY: AVCaptureSession and related ObjC objects are thread-safe when
+    // accessed through synchronized methods. All mutation is guarded through
+    // `&mut self`. The raw ObjC pointers are only dereferenced on the thread
+    // that owns this struct. `Sync` is intentionally NOT implemented because
+    // the ObjC pointers are not safe to share across threads without
+    // external synchronization.
     unsafe impl Send for IosCaptureSource {}
 
     impl IosCaptureSource {
@@ -362,6 +398,7 @@ mod platform {
                 frame_count: Arc::new(AtomicU64::new(0)),
                 session: None,
                 delegate: None,
+                queue: None,
                 _callback_state: None,
             })
         }
@@ -443,13 +480,16 @@ mod platform {
                 let delegate: *mut Object = msg_send![delegate_cls, alloc];
                 let delegate: *mut Object = msg_send![delegate, init];
 
-                // Set up callback state
-                let callback_state = Box::new(CallbackState {
+                // Set up callback state (Arc so the delegate can safely reference
+                // it even if a callback is in-flight during stop())
+                let callback_state = Arc::new(CallbackState {
                     latest_frame: Arc::clone(&self.latest_frame),
                     is_active: Arc::clone(&self.is_active),
                     frame_count: Arc::clone(&self.frame_count),
                 });
-                let state_ptr = &*callback_state as *const CallbackState as *mut c_void;
+                // Leak an Arc clone into the ivar (increments refcount)
+                let state_arc_for_delegate = Arc::clone(&callback_state);
+                let state_ptr = Arc::into_raw(state_arc_for_delegate) as *mut c_void;
                 (*delegate).set_ivar("_callbackState", state_ptr);
 
                 // Set delegate on output
@@ -468,15 +508,20 @@ mod platform {
                 }
                 let _: () = msg_send![session, addOutput: output];
 
+                // Session retains input and output, so release our ownership
+                let _: () = msg_send![input, release];
+                let _: () = msg_send![output, release];
+
                 let _: () = msg_send![session, commitConfiguration];
 
                 // Start
                 self.frame_count.store(0, Ordering::Relaxed);
-                self.is_active.store(true, Ordering::Relaxed);
+                self.is_active.store(true, Ordering::Release);
                 let _: () = msg_send![session, startRunning];
 
                 self.session = Some(session);
                 self.delegate = Some(delegate);
+                self.queue = Some(queue);
                 self._callback_state = Some(callback_state);
 
                 Ok(())
@@ -484,24 +529,53 @@ mod platform {
         }
 
         fn stop(&mut self) -> Result<(), String> {
-            self.is_active.store(false, Ordering::Relaxed);
+            self.is_active.store(false, Ordering::Release);
 
             if let Some(session) = self.session.take() {
                 unsafe {
+                    // Remove all inputs and outputs for clean teardown
+                    let inputs: *mut Object = msg_send![session, inputs];
+                    let input_count: usize = msg_send![inputs, count];
+                    for i in 0..input_count {
+                        let input: *mut Object = msg_send![inputs, objectAtIndex: i];
+                        let _: () = msg_send![session, removeInput: input];
+                    }
+                    let outputs: *mut Object = msg_send![session, outputs];
+                    let output_count: usize = msg_send![outputs, count];
+                    for i in 0..output_count {
+                        let output: *mut Object = msg_send![outputs, objectAtIndex: i];
+                        let _: () = msg_send![session, removeOutput: output];
+                    }
+
                     let _: () = msg_send![session, stopRunning];
                     let _: () = msg_send![session, release];
                 }
             }
 
+            // Fence on the dispatch queue to ensure no callback is in-flight
+            // before we tear down the delegate and callback state.
+            if let Some(queue) = self.queue.take() {
+                unsafe {
+                    dispatch_sync_f(queue, std::ptr::null_mut(), empty_fn);
+                    dispatch_release(queue);
+                }
+            }
+
             if let Some(delegate) = self.delegate.take() {
                 unsafe {
-                    // Clear the callback state pointer before releasing
-                    let null_ptr: *mut c_void = std::ptr::null_mut();
-                    (*delegate).set_ivar("_callbackState", null_ptr);
+                    // Reclaim the Arc that was leaked into the ivar
+                    let state_ptr: *mut c_void = *(*delegate).get_ivar("_callbackState");
+                    if !state_ptr.is_null() {
+                        // Reconstitute and drop the Arc (decrements refcount)
+                        let _ = Arc::from_raw(state_ptr as *const CallbackState);
+                        let null_ptr: *mut c_void = std::ptr::null_mut();
+                        (*delegate).set_ivar("_callbackState", null_ptr);
+                    }
                     let _: () = msg_send![delegate, release];
                 }
             }
 
+            // Drop our Arc (if refcount reaches 0, CallbackState is freed)
             self._callback_state = None;
 
             Ok(())
@@ -555,12 +629,12 @@ mod platform {
     }
 
     impl IosCaptureSource {
-        pub fn new(_device_id: String, width: u32, height: u32) -> Self {
-            Self {
+        pub fn new(_device_id: String, width: u32, height: u32) -> Result<Self, String> {
+            Ok(Self {
                 source_name: "ios-stub".to_string(),
                 width,
                 height,
-            }
+            })
         }
     }
 
@@ -609,7 +683,7 @@ mod tests {
 
     #[cfg(not(target_os = "macos"))]
     fn make_source(width: u32, height: u32) -> IosCaptureSource {
-        IosCaptureSource::new("test-uid-999".to_string(), width, height)
+        IosCaptureSource::new("test-uid-999".to_string(), width, height).unwrap()
     }
 
     #[test]
@@ -690,7 +764,7 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_ios_stub_start_fails_with_platform_message() {
-        let mut source = IosCaptureSource::new("device-1".to_string(), 1170, 2532);
+        let mut source = IosCaptureSource::new("device-1".to_string(), 1170, 2532).unwrap();
         let err = source.start().unwrap_err();
         assert!(
             err.contains("only supported on macOS"),
