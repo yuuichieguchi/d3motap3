@@ -11,6 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
+const BYTES_PER_SAMPLE_F32LE: f64 = 4.0;
+
 // ---------------------------------------------------------------------------
 // AudioTempFiles — locations of raw PCM output files
 // ---------------------------------------------------------------------------
@@ -19,10 +21,18 @@ use std::sync::{Arc, Mutex};
 pub struct AudioTempFiles {
     pub system_audio_path: Option<PathBuf>,
     pub mic_audio_path: Option<PathBuf>,
-    /// Actual sample rate detected from the first system audio buffer.
+    /// Sample rate from CMFormatDescription (may be configured rate, not actual).
     pub system_sample_rate: Option<u32>,
-    /// Actual sample rate detected from the first mic audio buffer.
+    /// Sample rate from CMFormatDescription (may be configured rate, not actual).
     pub mic_sample_rate: Option<u32>,
+    /// Sample rate from CMTime.timescale (reflects actual hardware rate).
+    pub system_timescale_sample_rate: Option<u32>,
+    /// Sample rate from CMTime.timescale (reflects actual hardware rate).
+    pub mic_timescale_sample_rate: Option<u32>,
+    /// Sample rate computed from file_size / (bytes_per_sample * channels * elapsed_seconds).
+    pub computed_system_sample_rate: Option<u32>,
+    /// Sample rate computed from file_size / (bytes_per_sample * channels * elapsed_seconds).
+    pub computed_mic_sample_rate: Option<u32>,
     /// Actual channel count detected from the first system audio buffer.
     pub system_channel_count: Option<u32>,
     /// Actual channel count detected from the first mic audio buffer.
@@ -77,6 +87,7 @@ struct AudioFileHandler {
     write_error: Arc<AtomicBool>,
     detected_sample_rate: Arc<Mutex<Option<f64>>>,
     detected_channel_count: Arc<Mutex<Option<u32>>>,
+    detected_timescale_sample_rate: Arc<Mutex<Option<i32>>>,
 }
 
 impl SCStreamOutputTrait for AudioFileHandler {
@@ -96,7 +107,8 @@ impl SCStreamOutputTrait for AudioFileHandler {
         {
             let mut rate = self.detected_sample_rate.lock().unwrap_or_else(|e| e.into_inner());
             let mut channels = self.detected_channel_count.lock().unwrap_or_else(|e| e.into_inner());
-            if rate.is_none() || channels.is_none() {
+            let mut ts_rate = self.detected_timescale_sample_rate.lock().unwrap_or_else(|e| e.into_inner());
+            if rate.is_none() || channels.is_none() || ts_rate.is_none() {
                 if let Some(fd) = sample.format_description() {
                     if rate.is_none() {
                         if let Some(sr) = fd.audio_sample_rate() {
@@ -108,15 +120,24 @@ impl SCStreamOutputTrait for AudioFileHandler {
                             *channels = Some(ch);
                         }
                     }
-                    // Log once when both are detected
-                    if rate.is_some() && channels.is_some() {
-                        eprintln!(
-                            "[audio] {:?} detected: sample_rate={} Hz, channels={}",
-                            of_type,
-                            rate.map_or("unknown".to_string(), |r| format!("{}", r)),
-                            channels.map_or("unknown".to_string(), |c| format!("{}", c)),
-                        );
+                }
+                // Read CMTime.timescale from buffer timing — this reflects
+                // the actual hardware sample rate, not the configured rate
+                if ts_rate.is_none() {
+                    let pts = sample.presentation_timestamp();
+                    if pts.is_valid() && pts.timescale > 0 {
+                        *ts_rate = Some(pts.timescale);
                     }
+                }
+                // Log once when all are detected
+                if rate.is_some() && channels.is_some() && ts_rate.is_some() {
+                    eprintln!(
+                        "[audio] {:?} detected: format_desc_rate={} Hz, timescale_rate={} Hz, channels={}",
+                        of_type,
+                        rate.map_or("unknown".to_string(), |r| format!("{}", r)),
+                        ts_rate.map_or("unknown".to_string(), |r| format!("{}", r)),
+                        channels.map_or("unknown".to_string(), |c| format!("{}", c)),
+                    );
                 }
             }
         }
@@ -204,6 +225,9 @@ pub struct AudioRecorder {
     mic_detected_sample_rate: Arc<Mutex<Option<f64>>>,
     system_detected_channel_count: Arc<Mutex<Option<u32>>>,
     mic_detected_channel_count: Arc<Mutex<Option<u32>>>,
+    system_detected_timescale_sample_rate: Arc<Mutex<Option<i32>>>,
+    mic_detected_timescale_sample_rate: Arc<Mutex<Option<i32>>>,
+    capture_start: Option<std::time::Instant>,
 }
 
 // SCStream is not marked Send/Sync by the crate.  We guard access through
@@ -261,6 +285,8 @@ impl AudioRecorder {
         let mic_detected_sample_rate = Arc::new(Mutex::new(None));
         let system_detected_channel_count: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
         let mic_detected_channel_count: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let system_detected_timescale_sample_rate: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
+        let mic_detected_timescale_sample_rate: Arc<Mutex<Option<i32>>> = Arc::new(Mutex::new(None));
 
         // -- system audio output handler --
         let mut system_writer: Option<Arc<Mutex<BufWriter<File>>>> = None;
@@ -276,6 +302,7 @@ impl AudioRecorder {
                 write_error: Arc::clone(&system_write_error),
                 detected_sample_rate: Arc::clone(&system_detected_sample_rate),
                 detected_channel_count: Arc::clone(&system_detected_channel_count),
+                detected_timescale_sample_rate: Arc::clone(&system_detected_timescale_sample_rate),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Audio);
             system_writer = Some(writer);
@@ -296,6 +323,7 @@ impl AudioRecorder {
                 write_error: Arc::clone(&mic_write_error),
                 detected_sample_rate: Arc::clone(&mic_detected_sample_rate),
                 detected_channel_count: Arc::clone(&mic_detected_channel_count),
+                detected_timescale_sample_rate: Arc::clone(&mic_detected_timescale_sample_rate),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Microphone);
             mic_writer = Some(writer);
@@ -305,6 +333,8 @@ impl AudioRecorder {
         stream
             .start_capture()
             .map_err(|e| format!("Failed to start audio capture: {}", e))?;
+
+        let capture_start = Some(std::time::Instant::now());
 
         Ok(Self {
             stream,
@@ -318,6 +348,9 @@ impl AudioRecorder {
             mic_detected_sample_rate,
             system_detected_channel_count,
             mic_detected_channel_count,
+            system_detected_timescale_sample_rate,
+            mic_detected_timescale_sample_rate,
+            capture_start,
         })
     }
 
@@ -329,6 +362,8 @@ impl AudioRecorder {
         self.stream
             .stop_capture()
             .map_err(|e| format!("Failed to stop audio capture: {}", e))?;
+
+        let capture_elapsed = self.capture_start.map(|s| s.elapsed());
 
         // Flush buffered writers to ensure all data is on disk.
         if let Some(ref writer) = self.system_writer {
@@ -354,6 +389,53 @@ impl AudioRecorder {
             eprintln!("[audio] Warning: write errors occurred during mic audio recording");
         }
 
+        // Read detected values
+        let detected_system_channels = self
+            .system_detected_channel_count
+            .lock()
+            .ok()
+            .and_then(|c| *c);
+        let detected_mic_channels = self
+            .mic_detected_channel_count
+            .lock()
+            .ok()
+            .and_then(|c| *c);
+
+        // Compute sample rates from file size and elapsed time (fallback)
+        let mut computed_system_rate = None;
+        let mut computed_mic_rate = None;
+        if let Some(elapsed) = capture_elapsed {
+            let secs = elapsed.as_secs_f64();
+            if secs >= 2.0 {
+                if let Some(ref path) = self.system_audio_path {
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    if file_size > 0 {
+                        let channels = detected_system_channels.unwrap_or(2) as f64;
+                        let raw_rate = file_size as f64 / (BYTES_PER_SAMPLE_F32LE * channels * secs);
+                        let snapped = super::round_to_standard_rate(raw_rate);
+                        eprintln!(
+                            "[audio] system audio: file-size computed rate={:.1} Hz -> snapped to {} Hz",
+                            raw_rate, snapped
+                        );
+                        computed_system_rate = Some(snapped);
+                    }
+                }
+                if let Some(ref path) = self.mic_audio_path {
+                    let file_size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+                    if file_size > 0 {
+                        let channels = detected_mic_channels.unwrap_or(1) as f64;
+                        let raw_rate = file_size as f64 / (BYTES_PER_SAMPLE_F32LE * channels * secs);
+                        let snapped = super::round_to_standard_rate(raw_rate);
+                        eprintln!(
+                            "[audio] mic audio: file-size computed rate={:.1} Hz -> snapped to {} Hz",
+                            raw_rate, snapped
+                        );
+                        computed_mic_rate = Some(snapped);
+                    }
+                }
+            }
+        }
+
         Ok(AudioTempFiles {
             system_audio_path: self.system_audio_path,
             mic_audio_path: self.mic_audio_path,
@@ -369,16 +451,24 @@ impl AudioRecorder {
                 .ok()
                 .and_then(|r| *r)
                 .map(|r| r.round() as u32),
-            system_channel_count: self
-                .system_detected_channel_count
+            system_timescale_sample_rate: self
+                .system_detected_timescale_sample_rate
                 .lock()
                 .ok()
-                .and_then(|c| *c),
-            mic_channel_count: self
-                .mic_detected_channel_count
+                .and_then(|r| *r)
+                .filter(|&r| r > 0)
+                .map(|r| r as u32),
+            mic_timescale_sample_rate: self
+                .mic_detected_timescale_sample_rate
                 .lock()
                 .ok()
-                .and_then(|c| *c),
+                .and_then(|r| *r)
+                .filter(|&r| r > 0)
+                .map(|r| r as u32),
+            computed_system_sample_rate: computed_system_rate,
+            computed_mic_sample_rate: computed_mic_rate,
+            system_channel_count: detected_system_channels,
+            mic_channel_count: detected_mic_channels,
         })
     }
 }
@@ -486,6 +576,10 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_timescale_sample_rate: None,
+            mic_timescale_sample_rate: None,
+            computed_system_sample_rate: None,
+            computed_mic_sample_rate: None,
             system_channel_count: None,
             mic_channel_count: None,
         };
@@ -497,6 +591,10 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_timescale_sample_rate: None,
+            mic_timescale_sample_rate: None,
+            computed_system_sample_rate: None,
+            computed_mic_sample_rate: None,
             system_channel_count: None,
             mic_channel_count: None,
         };
@@ -516,6 +614,10 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_timescale_sample_rate: None,
+            mic_timescale_sample_rate: None,
+            computed_system_sample_rate: None,
+            computed_mic_sample_rate: None,
             system_channel_count: None,
             mic_channel_count: None,
         };
@@ -526,6 +628,10 @@ mod tests {
             mic_audio_path: Some(mic_path.clone()),
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_timescale_sample_rate: None,
+            mic_timescale_sample_rate: None,
+            computed_system_sample_rate: None,
+            computed_mic_sample_rate: None,
             system_channel_count: None,
             mic_channel_count: None,
         };
@@ -536,6 +642,10 @@ mod tests {
             mic_audio_path: Some(mic_path.clone()),
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_timescale_sample_rate: None,
+            mic_timescale_sample_rate: None,
+            computed_system_sample_rate: None,
+            computed_mic_sample_rate: None,
             system_channel_count: None,
             mic_channel_count: None,
         };
@@ -548,6 +658,10 @@ mod tests {
             mic_audio_path: None,
             system_sample_rate: None,
             mic_sample_rate: None,
+            system_timescale_sample_rate: None,
+            mic_timescale_sample_rate: None,
+            computed_system_sample_rate: None,
+            computed_mic_sample_rate: None,
             system_channel_count: None,
             mic_channel_count: None,
         };

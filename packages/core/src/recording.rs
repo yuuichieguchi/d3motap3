@@ -281,7 +281,6 @@ struct RecordingHandleV2 {
     audio_config_sample_rate: u32,
     audio_channel_count: u32,
     audio_mic_channel_count: u32,
-    core_audio_output_sample_rate: Option<u32>,
     final_output_path: PathBuf,
 }
 
@@ -506,12 +505,6 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         })
     });
 
-    let core_audio_sr = if audio_config.capture_system_audio {
-        audio::get_default_output_sample_rate()
-    } else {
-        None
-    };
-
     let mut state = RECORDING_V2_STATE
         .lock()
         .map_err(|e| format!("Lock error: {}", e))?;
@@ -527,7 +520,6 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         } else {
             audio_config.mic_channel_count
         },
-        core_audio_output_sample_rate: core_audio_sr,
         final_output_path,
     });
 
@@ -591,15 +583,20 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 _ => crate::encoder::OutputFormat::Mp4,
             };
 
-            // Priority for system audio sample rate:
-            // CoreAudio (actual device rate) > SCK detection > config (48kHz)
-            let system_sr = handle
-                .core_audio_output_sample_rate
+            // Priority for sample rate:
+            // 1. CMTime.timescale (actual hardware rate from buffer timing)
+            // 2. File-size computed rate (snapped to standard rate)
+            // 3. CMFormatDescription (may return configured rate, not actual)
+            // 4. Config default (48kHz)
+            let system_sr = audio_temp
+                .system_timescale_sample_rate
+                .or(audio_temp.computed_system_sample_rate)
                 .or(audio_temp.system_sample_rate)
                 .unwrap_or(handle.audio_config_sample_rate);
-            // Mic sample rate: SCK detection > config
             let mic_sr = audio_temp
-                .mic_sample_rate
+                .mic_timescale_sample_rate
+                .or(audio_temp.computed_mic_sample_rate)
+                .or(audio_temp.mic_sample_rate)
                 .unwrap_or(handle.audio_config_sample_rate);
 
             // Use detected channel counts when available, fall back to config
@@ -611,8 +608,17 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 .unwrap_or(handle.audio_mic_channel_count);
 
             eprintln!(
-                "[audio] mux params: system_sr={} mic_sr={} system_ch={} mic_ch={}",
-                system_sr, mic_sr, system_ch, mic_ch
+                "[audio] mux params: system_sr={} (timescale={:?}, computed={:?}, format_desc={:?}) mic_sr={} (timescale={:?}, computed={:?}, format_desc={:?}) system_ch={} mic_ch={}",
+                system_sr,
+                audio_temp.system_timescale_sample_rate,
+                audio_temp.computed_system_sample_rate,
+                audio_temp.system_sample_rate,
+                mic_sr,
+                audio_temp.mic_timescale_sample_rate,
+                audio_temp.computed_mic_sample_rate,
+                audio_temp.mic_sample_rate,
+                system_ch,
+                mic_ch
             );
 
             let mux_result = crate::encoder::mux_audio_video(
