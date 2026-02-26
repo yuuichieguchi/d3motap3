@@ -527,11 +527,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         audio_recorder,
         audio_config_sample_rate: audio_config.sample_rate,
         audio_channel_count: audio_config.channel_count,
-        audio_mic_channel_count: if audio_config.capture_system_audio {
-            audio_config.channel_count
-        } else {
-            audio_config.mic_channel_count
-        },
+        audio_mic_channel_count: audio_config.effective_mic_channels(),
         hardware_sample_rate,
         final_output_path,
     });

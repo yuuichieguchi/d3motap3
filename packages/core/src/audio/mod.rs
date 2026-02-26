@@ -50,6 +50,12 @@ impl AudioConfig {
     pub fn is_enabled(&self) -> bool {
         self.capture_system_audio || self.capture_microphone
     }
+
+    /// Fallback mic channel count for FFmpeg muxing.
+    /// Always returns mic_channel_count regardless of system audio state.
+    pub fn effective_mic_channels(&self) -> u32 {
+        self.mic_channel_count
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -239,5 +245,20 @@ mod tests {
         if let Some(r) = rate {
             assert!(r >= 8000 && r <= 384000, "Sample rate {} is out of reasonable range", r);
         }
+    }
+
+    #[test]
+    fn effective_mic_channels_is_always_mono() {
+        // When both system audio and mic are on, mic channel count
+        // must remain 1 (mono), not inherit system's 2 (stereo).
+        let config = AudioConfig {
+            capture_system_audio: true,
+            capture_microphone: true,
+            channel_count: 2,
+            mic_channel_count: 1,
+            ..Default::default()
+        };
+        assert_eq!(config.effective_mic_channels(), 1,
+            "mic channels must be 1 even when system audio (2ch) is enabled");
     }
 }
