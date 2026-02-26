@@ -82,19 +82,149 @@ pub fn list_audio_input_devices() -> Vec<AudioDeviceInfo> {
         .collect()
 }
 
-/// Snap a computed sample rate to the nearest standard audio sample rate.
-pub fn round_to_standard_rate(rate: f64) -> u32 {
-    if !rate.is_finite() || rate <= 0.0 {
-        return 48000;
+// ---------------------------------------------------------------------------
+// CoreAudio: default output device sample rate
+// ---------------------------------------------------------------------------
+
+/// Query the default audio output device's nominal sample rate via CoreAudio.
+///
+/// Returns `None` if the query fails (e.g. no audio output device available).
+/// This is used as a fallback for system audio recording, where ScreenCaptureKit's
+/// CMFormatDescription may report the configured rate rather than the actual
+/// hardware rate.
+pub fn get_default_output_sample_rate() -> Option<u32> {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(rate) = core_audio_query::default_output_sample_rate() {
+            return Some(rate);
+        }
+        if let Some(rate) = system_profiler_output_sample_rate() {
+            return Some(rate);
+        }
     }
-    const STANDARD_RATES: &[u32] = &[
-        8000, 11025, 16000, 22050, 32000, 44100, 48000, 88200, 96000, 176400, 192000,
-    ];
-    STANDARD_RATES
-        .iter()
-        .copied()
-        .min_by_key(|&r| ((rate - r as f64).abs() * 1000.0) as u64)
-        .unwrap_or(48000)
+    None
+}
+
+#[cfg(target_os = "macos")]
+mod core_audio_query {
+    use std::os::raw::c_void;
+
+    type OSStatus = i32;
+    type AudioObjectID = u32;
+
+    #[repr(C)]
+    struct AudioObjectPropertyAddress {
+        m_selector: u32,
+        m_scope: u32,
+        m_element: u32,
+    }
+
+    // FourCharCode constants
+    const AUDIO_HARDWARE_PROPERTY_DEFAULT_OUTPUT_DEVICE: u32 = 0x646F7574; // 'dout'
+    const AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE: u32 = 0x6E737274;     // 'nsrt'
+    const AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL: u32 = 0x676C6F62;           // 'glob'
+    const AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN: u32 = 0;
+    const AUDIO_OBJECT_SYSTEM_OBJECT: AudioObjectID = 1;
+
+    #[link(name = "CoreAudio", kind = "framework")]
+    extern "C" {
+        fn AudioObjectGetPropertyData(
+            in_object_id: AudioObjectID,
+            in_address: *const AudioObjectPropertyAddress,
+            in_qualifier_data_size: u32,
+            in_qualifier_data: *const c_void,
+            io_data_size: *mut u32,
+            out_data: *mut c_void,
+        ) -> OSStatus;
+    }
+
+    pub(super) fn default_output_sample_rate() -> Option<u32> {
+        unsafe {
+            // Step 1: Get the default output device ID
+            let address = AudioObjectPropertyAddress {
+                m_selector: AUDIO_HARDWARE_PROPERTY_DEFAULT_OUTPUT_DEVICE,
+                m_scope: AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
+                m_element: AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
+            };
+            let mut device_id: AudioObjectID = 0;
+            let mut size = std::mem::size_of::<AudioObjectID>() as u32;
+
+            let status = AudioObjectGetPropertyData(
+                AUDIO_OBJECT_SYSTEM_OBJECT,
+                &address,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut device_id as *mut _ as *mut c_void,
+            );
+            if status != 0 || device_id == 0 {
+                eprintln!("[audio] CoreAudio: failed to get default output device (status={})", status);
+                return None;
+            }
+
+            // Step 2: Get the device's nominal sample rate
+            let rate_address = AudioObjectPropertyAddress {
+                m_selector: AUDIO_DEVICE_PROPERTY_NOMINAL_SAMPLE_RATE,
+                m_scope: AUDIO_OBJECT_PROPERTY_SCOPE_GLOBAL,
+                m_element: AUDIO_OBJECT_PROPERTY_ELEMENT_MAIN,
+            };
+            let mut sample_rate: f64 = 0.0;
+            let mut rate_size = std::mem::size_of::<f64>() as u32;
+
+            let status = AudioObjectGetPropertyData(
+                device_id,
+                &rate_address,
+                0,
+                std::ptr::null(),
+                &mut rate_size,
+                &mut sample_rate as *mut _ as *mut c_void,
+            );
+            if status != 0 || !sample_rate.is_finite() || sample_rate <= 0.0 {
+                eprintln!("[audio] CoreAudio: failed to get sample rate (status={})", status);
+                return None;
+            }
+
+            eprintln!("[audio] CoreAudio: default output sample rate = {} Hz", sample_rate);
+            Some(sample_rate.round() as u32)
+        }
+    }
+}
+
+/// Fallback: query the default output device sample rate via `system_profiler`.
+///
+/// Slower than CoreAudio but works even when CoreAudio returns an error.
+#[cfg(target_os = "macos")]
+fn system_profiler_output_sample_rate() -> Option<u32> {
+    let output = std::process::Command::new("system_profiler")
+        .args(["SPAudioDataType", "-json"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout).ok()?;
+    // Structure: SPAudioDataType[0]._items[] contains device objects
+    let categories = json.get("SPAudioDataType")?.as_array()?;
+    let items = categories.first()?.get("_items")?.as_array()?;
+    for item in items {
+        let is_default = item
+            .get("coreaudio_default_audio_output_device")
+            .and_then(|v| v.as_str())
+            .map(|s| s == "spaudio_yes")
+            .unwrap_or(false);
+        if !is_default {
+            continue;
+        }
+        if let Some(rate) = item
+            .get("coreaudio_device_srate")
+            .and_then(|v| v.as_u64().or_else(|| v.as_str().and_then(|s| s.parse().ok())))
+        {
+            let rate = rate as u32;
+            eprintln!("[audio] system_profiler: default output sample rate = {} Hz", rate);
+            return Some(rate);
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -102,67 +232,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_round_to_standard_rate_exact_44100() {
-        assert_eq!(round_to_standard_rate(44100.0), 44100);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_exact_48000() {
-        assert_eq!(round_to_standard_rate(48000.0), 48000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_near_44100() {
-        // 44050.0 is closer to 44100 than to 32000
-        assert_eq!(round_to_standard_rate(44050.0), 44100);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_near_48000() {
-        assert_eq!(round_to_standard_rate(47800.0), 48000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_between_44100_48000() {
-        // 46000.0 is closer to 48000 (distance 2000) than 44100 (distance 1900)
-        // Actually 46000 - 44100 = 1900, 48000 - 46000 = 2000, so closer to 44100
-        assert_eq!(round_to_standard_rate(46000.0), 44100);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_low_rate() {
-        // 8100.0 is closer to 8000 (distance 100) than to 11025 (distance 2925)
-        assert_eq!(round_to_standard_rate(8100.0), 8000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_high_rate() {
-        // 96500.0 is closer to 96000 (distance 500) than to 88200 (distance 8300)
-        assert_eq!(round_to_standard_rate(96500.0), 96000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_nan() {
-        assert_eq!(round_to_standard_rate(f64::NAN), 48000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_infinity() {
-        assert_eq!(round_to_standard_rate(f64::INFINITY), 48000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_neg_infinity() {
-        assert_eq!(round_to_standard_rate(f64::NEG_INFINITY), 48000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_zero() {
-        assert_eq!(round_to_standard_rate(0.0), 48000);
-    }
-
-    #[test]
-    fn test_round_to_standard_rate_negative() {
-        assert_eq!(round_to_standard_rate(-44100.0), 48000);
+    fn test_get_default_output_sample_rate() {
+        // On macOS CI/dev machines, there should be a default output device.
+        let rate = get_default_output_sample_rate();
+        // Rate may be None in headless environments, but if present, should be reasonable.
+        if let Some(r) = rate {
+            assert!(r >= 8000 && r <= 384000, "Sample rate {} is out of reasonable range", r);
+        }
     }
 }
