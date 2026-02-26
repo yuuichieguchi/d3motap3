@@ -30,6 +30,7 @@ export function EditorView() {
   // Update video element when current time changes
   useEffect(() => {
     if (!videoRef.current) return
+    const isPlaying = useEditorStore.getState().isPlaying
     const result = getClipAtTime(store.currentTimeMs)
     if (result) {
       const clipChanged = currentSourcePathRef.current !== result.clip.sourcePath
@@ -37,17 +38,17 @@ export function EditorView() {
         currentSourcePathRef.current = result.clip.sourcePath
         videoRef.current.src = `media://local${result.clip.sourcePath}`
         videoRef.current.currentTime = result.localTime / 1000
-        if (store.isPlaying) {
+        if (isPlaying) {
           videoRef.current.play()
         }
-      } else if (!store.isPlaying) {
+      } else if (!isPlaying) {
         // Only seek when not playing (user scrubbing the timeline)
         videoRef.current.currentTime = result.localTime / 1000
       }
     } else {
       currentSourcePathRef.current = null
     }
-  }, [store.currentTimeMs, getClipAtTime, store.isPlaying])
+  }, [store.currentTimeMs, getClipAtTime])
 
   // Playback: video.play()/pause() + setInterval for UI timeline sync
   useEffect(() => {
