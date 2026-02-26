@@ -443,10 +443,18 @@ body {
   word-break: break-all;
 }
 
+.editor-view .result-path {
+  color: rgba(255, 255, 255, 0.6) !important;
+}
+
 .result-details {
   font-size: 11px !important;
   color: var(--text-secondary) !important;
   margin-top: 4px !important;
+}
+
+.editor-view .result-details {
+  color: rgba(255, 255, 255, 0.5) !important;
 }
 
 .recording-indicator {

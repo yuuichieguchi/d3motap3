@@ -309,12 +309,49 @@ pub struct FilterComplexResult {
     pub filter_complex: String,
     /// The label of the final output pad (e.g. "[outv]").
     pub output_label: String,
+    /// The label of the final audio output pad (e.g. "[a0]"), if any clip has audio.
+    pub audio_output_label: Option<String>,
+}
+
+/// Check whether a media file contains an audio stream using ffprobe.
+fn has_audio_stream(path: &str) -> bool {
+    let ffprobe_path = match find_ffprobe() {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("[editor] audio detection skipped (ffprobe not found): {}", e);
+            return false;
+        }
+    };
+
+    let output = Command::new(&ffprobe_path)
+        .args([
+            "-v", "quiet",
+            "-select_streams", "a:0",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0",
+            path,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .output();
+
+    match output {
+        Ok(o) => {
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            stdout.trim() == "audio"
+        }
+        Err(e) => {
+            eprintln!("[editor] audio detection failed for '{}': {}", path, e);
+            false
+        }
+    }
 }
 
 /// Build an FFmpeg filter_complex string from the project definition.
 ///
 /// This is a pure function that can be unit-tested without spawning processes.
-pub fn build_filter_complex(project: &EditorProject) -> Result<FilterComplexResult, String> {
+pub fn build_filter_complex(project: &EditorProject, clip_has_audio: &[bool]) -> Result<FilterComplexResult, String> {
     if project.clips.is_empty() {
         return Err("No clips in project".to_string());
     }
@@ -322,9 +359,20 @@ pub fn build_filter_complex(project: &EditorProject) -> Result<FilterComplexResu
     let mut clips = project.clips.iter().collect::<Vec<_>>();
     clips.sort_by_key(|c| c.order);
 
+    if clip_has_audio.len() != clips.len() {
+        return Err(format!(
+            "clip_has_audio length ({}) does not match clips count ({})",
+            clip_has_audio.len(),
+            clips.len(),
+        ));
+    }
+
+    let any_has_audio = clip_has_audio.iter().any(|&a| a);
+
     let mut filters: Vec<String> = Vec::new();
     // Will be set after the per-clip or concat/xfade section.
     let mut current_label;
+    let mut audio_output_label: Option<String> = None;
 
     // Per-clip trim + scale filters.
     for (i, clip) in clips.iter().enumerate() {
@@ -340,12 +388,38 @@ pub fn build_filter_complex(project: &EditorProject) -> Result<FilterComplexResu
         ));
     }
 
+    // Per-clip audio filters (only when at least one clip has audio).
+    if any_has_audio {
+        for (i, clip) in clips.iter().enumerate() {
+            let start_s = clip.trim_start / 1000.0;
+            let end_s = (clip.original_duration - clip.trim_end) / 1000.0;
+            let duration_s = end_s - start_s;
+            let audio_label = format!("a{}", i);
+
+            let has_audio = clip_has_audio[i];
+            if has_audio {
+                filters.push(format!(
+                    "[{}:a]atrim=start={:.3}:end={:.3},asetpts=PTS-STARTPTS,aresample=48000,aformat=channel_layouts=stereo[{}]",
+                    i, start_s, end_s, audio_label,
+                ));
+            } else {
+                filters.push(format!(
+                    "anullsrc=channel_layout=stereo:sample_rate=48000,atrim=duration={:.3}[{}]",
+                    duration_s, audio_label,
+                ));
+            }
+        }
+    }
+
     // Determine whether to use xfade transitions or simple concat.
     let has_transitions = clips.len() > 1
         && clips.windows(2).any(|pair| pair[0].transition.is_some());
 
     if clips.len() == 1 {
         current_label = "v0".to_string();
+        if any_has_audio {
+            audio_output_label = Some("[a0]".to_string());
+        }
     } else if has_transitions {
         // Chain xfade filters between consecutive clips.
         // We need to calculate the offset for each xfade, which is the cumulative
@@ -391,17 +465,50 @@ pub fn build_filter_complex(project: &EditorProject) -> Result<FilterComplexResu
             cumulative_xfade += xfade_duration_s;
             current_label = out_label;
         }
+
+        // Audio crossfade chain (parallel to video xfade).
+        if any_has_audio {
+            let mut current_audio = "a0".to_string();
+            for i in 0..(clips.len() - 1) {
+                let transition = clips[i].transition.as_ref();
+                let xfade_duration_s = match transition {
+                    Some(t) => t.duration / 1000.0,
+                    None => 0.5,
+                };
+                let out_audio = format!("axf{}", i);
+                filters.push(format!(
+                    "[{}][a{}]acrossfade=d={:.3}:c1=tri:c2=tri[{}]",
+                    current_audio,
+                    i + 1,
+                    xfade_duration_s,
+                    out_audio,
+                ));
+                current_audio = out_audio;
+            }
+            audio_output_label = Some(format!("[{}]", current_audio));
+        }
     } else {
         // Simple concat.
-        let inputs: String = (0..clips.len()).map(|i| format!("[v{}]", i)).collect();
-        let out_label = "concatv";
-        filters.push(format!(
-            "{}concat=n={}:v=1:a=0[{}]",
-            inputs,
-            clips.len(),
-            out_label,
-        ));
-        current_label = out_label.to_string();
+        if any_has_audio {
+            let inputs: String = (0..clips.len())
+                .map(|i| format!("[v{}][a{}]", i, i))
+                .collect();
+            filters.push(format!(
+                "{}concat=n={}:v=1:a=1[concatv][concata]",
+                inputs,
+                clips.len(),
+            ));
+            current_label = "concatv".to_string();
+            audio_output_label = Some("[concata]".to_string());
+        } else {
+            let inputs: String = (0..clips.len()).map(|i| format!("[v{}]", i)).collect();
+            filters.push(format!(
+                "{}concat=n={}:v=1:a=0[concatv]",
+                inputs,
+                clips.len(),
+            ));
+            current_label = "concatv".to_string();
+        }
     }
 
     // Text overlays via drawtext filters.
@@ -439,6 +546,7 @@ pub fn build_filter_complex(project: &EditorProject) -> Result<FilterComplexResu
     Ok(FilterComplexResult {
         filter_complex: filters.join(";"),
         output_label,
+        audio_output_label,
     })
 }
 
@@ -494,14 +602,16 @@ fn run_export(
     project: &EditorProject,
     output_path: &str,
 ) -> Result<(), String> {
-    let fc = build_filter_complex(project)?;
+    let mut clips = project.clips.iter().collect::<Vec<_>>();
+    clips.sort_by_key(|c| c.order);
+    let clip_has_audio: Vec<bool> = clips
+        .iter()
+        .map(|c| has_audio_stream(&c.source_path))
+        .collect();
+    let fc = build_filter_complex(project, &clip_has_audio)?;
 
     let mut args: Vec<String> = Vec::new();
     args.extend(["-y".to_string(), "-hide_banner".to_string()]);
-
-    // Input files.
-    let mut clips = project.clips.iter().collect::<Vec<_>>();
-    clips.sort_by_key(|c| c.order);
     for clip in &clips {
         args.extend(["-i".to_string(), clip.source_path.clone()]);
     }
@@ -512,12 +622,26 @@ fn run_export(
     // Map the final video output.
     args.extend(["-map".to_string(), fc.output_label]);
 
-    // Output codec.
+    // Map audio output if present.
+    if let Some(ref audio_label) = fc.audio_output_label {
+        args.extend(["-map".to_string(), audio_label.clone()]);
+    }
+
+    // Output codecs.
     args.extend([
         "-c:v".to_string(), "libx264".to_string(),
         "-pix_fmt".to_string(), "yuv420p".to_string(),
-        "-movflags".to_string(), "+faststart".to_string(),
     ]);
+
+    // Audio codec (only when audio is present).
+    if fc.audio_output_label.is_some() {
+        args.extend([
+            "-c:a".to_string(), "aac".to_string(),
+            "-b:a".to_string(), "192k".to_string(),
+        ]);
+    }
+
+    args.extend(["-movflags".to_string(), "+faststart".to_string()]);
 
     args.push(output_path.to_string());
 
@@ -727,7 +851,8 @@ mod tests {
             output_height: 1080,
         };
 
-        let result = build_filter_complex(&project).expect("build single clip");
+        let clip_has_audio = [false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build single clip");
         assert!(result.filter_complex.contains("[0:v]trim=start=1.000:end=8.000"));
         assert!(result.filter_complex.contains("setpts=PTS-STARTPTS"));
         assert!(result.filter_complex.contains("scale=1920:1080"));
@@ -762,7 +887,8 @@ mod tests {
             output_height: 720,
         };
 
-        let result = build_filter_complex(&project).expect("build concat");
+        let clip_has_audio = [false, false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build concat");
         assert!(result.filter_complex.contains("concat=n=2:v=1:a=0"));
         assert_eq!(result.output_label, "[concatv]");
     }
@@ -798,7 +924,8 @@ mod tests {
             output_height: 1080,
         };
 
-        let result = build_filter_complex(&project).expect("build xfade");
+        let clip_has_audio = [false, false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build xfade");
         assert!(result.filter_complex.contains("xfade=transition=fade:duration=0.500"));
         // offset = clip0 duration (5s) - xfade duration (0.5s) = 4.5s
         assert!(result.filter_complex.contains("offset=4.500"));
@@ -831,7 +958,8 @@ mod tests {
             output_height: 1080,
         };
 
-        let result = build_filter_complex(&project).expect("build with text");
+        let clip_has_audio = [false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build with text");
         assert!(result.filter_complex.contains("drawtext=text='Hello'"));
         assert!(result.filter_complex.contains("fontsize=48"));
         assert!(result.filter_complex.contains("fontcolor=#ffffff"));
@@ -848,7 +976,8 @@ mod tests {
             output_height: 1080,
         };
 
-        let result = build_filter_complex(&project);
+        let clip_has_audio: [bool; 0] = [];
+        let result = build_filter_complex(&project, &clip_has_audio);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("No clips"));
     }
@@ -881,7 +1010,8 @@ mod tests {
             output_height: 720,
         };
 
-        let result = build_filter_complex(&project).expect("build sorted");
+        let clip_has_audio = [false, false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build sorted");
         // Even though c2 is first in the vec, order=0 clip should be [0:v].
         assert!(result.filter_complex.contains("[0:v]trim"));
         assert!(result.filter_complex.contains("[1:v]trim"));
@@ -1031,5 +1161,289 @@ mod tests {
     fn parse_time_from_line_na() {
         let line = "time=N/A bitrate=N/A";
         assert!(parse_time_from_line(line).is_none());
+    }
+
+    // ==================== Audio filter_complex tests (TDD Red phase) ====================
+
+    #[test]
+    fn filter_complex_single_clip_with_audio() {
+        let project = EditorProject {
+            clips: vec![EditorClip {
+                id: "c1".to_string(),
+                source_path: "/test.mp4".to_string(),
+                original_duration: 10000.0,
+                trim_start: 1000.0,
+                trim_end: 2000.0,
+                order: 0,
+                transition: None,
+            }],
+            text_overlays: vec![],
+            output_width: 1920,
+            output_height: 1080,
+        };
+
+        let clip_has_audio = [true];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build single clip with audio");
+        assert!(
+            result.filter_complex.contains("[0:a]atrim=start=1.000:end=8.000"),
+            "Expected audio atrim filter, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("asetpts=PTS-STARTPTS"),
+            "Expected asetpts filter, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("aresample=48000"),
+            "Expected aresample filter, got: {}",
+            result.filter_complex
+        );
+        assert_eq!(
+            result.audio_output_label,
+            Some("[a0]".to_string()),
+            "Expected audio_output_label to be Some(\"[a0]\"), got: {:?}",
+            result.audio_output_label
+        );
+    }
+
+    #[test]
+    fn filter_complex_concat_with_audio() {
+        let project = EditorProject {
+            clips: vec![
+                EditorClip {
+                    id: "c1".to_string(),
+                    source_path: "/a.mp4".to_string(),
+                    original_duration: 5000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 0,
+                    transition: None,
+                },
+                EditorClip {
+                    id: "c2".to_string(),
+                    source_path: "/b.mp4".to_string(),
+                    original_duration: 3000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 1,
+                    transition: None,
+                },
+            ],
+            text_overlays: vec![],
+            output_width: 1280,
+            output_height: 720,
+        };
+
+        let clip_has_audio = [true, true];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build concat with audio");
+        assert!(
+            result.filter_complex.contains("[0:a]atrim"),
+            "Expected [0:a]atrim in filter_complex, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("[1:a]atrim"),
+            "Expected [1:a]atrim in filter_complex, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("concat=n=2:v=1:a=1"),
+            "Expected concat with a=1 for audio, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("[concata]"),
+            "Expected [concata] label in filter_complex, got: {}",
+            result.filter_complex
+        );
+        assert_eq!(
+            result.audio_output_label,
+            Some("[concata]".to_string()),
+            "Expected audio_output_label to be Some(\"[concata]\"), got: {:?}",
+            result.audio_output_label
+        );
+    }
+
+    #[test]
+    fn filter_complex_concat_mixed_audio() {
+        let project = EditorProject {
+            clips: vec![
+                EditorClip {
+                    id: "c1".to_string(),
+                    source_path: "/a.mp4".to_string(),
+                    original_duration: 5000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 0,
+                    transition: None,
+                },
+                EditorClip {
+                    id: "c2".to_string(),
+                    source_path: "/b.mp4".to_string(),
+                    original_duration: 3000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 1,
+                    transition: None,
+                },
+            ],
+            text_overlays: vec![],
+            output_width: 1280,
+            output_height: 720,
+        };
+
+        let clip_has_audio = [true, false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build concat mixed audio");
+        assert!(
+            result.filter_complex.contains("[0:a]atrim"),
+            "Expected [0:a]atrim for clip with audio, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("anullsrc=channel_layout=stereo:sample_rate=48000"),
+            "Expected anullsrc for silent clip, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.filter_complex.contains("concat=n=2:v=1:a=1"),
+            "Expected concat with a=1, got: {}",
+            result.filter_complex
+        );
+        assert_eq!(
+            result.audio_output_label,
+            Some("[concata]".to_string()),
+            "Expected audio_output_label to be Some(\"[concata]\"), got: {:?}",
+            result.audio_output_label
+        );
+    }
+
+    #[test]
+    fn filter_complex_xfade_with_audio() {
+        let project = EditorProject {
+            clips: vec![
+                EditorClip {
+                    id: "c1".to_string(),
+                    source_path: "/a.mp4".to_string(),
+                    original_duration: 5000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 0,
+                    transition: Some(Transition {
+                        transition_type: "fade".to_string(),
+                        duration: 500.0,
+                    }),
+                },
+                EditorClip {
+                    id: "c2".to_string(),
+                    source_path: "/b.mp4".to_string(),
+                    original_duration: 3000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 1,
+                    transition: None,
+                },
+            ],
+            text_overlays: vec![],
+            output_width: 1920,
+            output_height: 1080,
+        };
+
+        let clip_has_audio = [true, true];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build xfade with audio");
+        assert!(
+            result.filter_complex.contains("acrossfade=d=0.500"),
+            "Expected acrossfade filter, got: {}",
+            result.filter_complex
+        );
+        assert!(
+            result.audio_output_label.is_some(),
+            "Expected audio_output_label to be Some(...), got: {:?}",
+            result.audio_output_label
+        );
+    }
+
+    #[test]
+    fn filter_complex_all_silent() {
+        let project = EditorProject {
+            clips: vec![
+                EditorClip {
+                    id: "c1".to_string(),
+                    source_path: "/a.mp4".to_string(),
+                    original_duration: 5000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 0,
+                    transition: None,
+                },
+                EditorClip {
+                    id: "c2".to_string(),
+                    source_path: "/b.mp4".to_string(),
+                    original_duration: 3000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 1,
+                    transition: None,
+                },
+            ],
+            text_overlays: vec![],
+            output_width: 1280,
+            output_height: 720,
+        };
+
+        let clip_has_audio = [false, false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build all silent");
+        assert_eq!(
+            result.audio_output_label, None,
+            "Expected audio_output_label to be None for all-silent clips, got: {:?}",
+            result.audio_output_label
+        );
+        assert!(
+            result.filter_complex.contains("concat=n=2:v=1:a=0"),
+            "Expected concat with a=0 (no audio), got: {}",
+            result.filter_complex
+        );
+    }
+
+    #[test]
+    fn filter_complex_xfade_mixed_audio() {
+        let project = EditorProject {
+            clips: vec![
+                EditorClip {
+                    id: "c1".to_string(),
+                    source_path: "/a.mp4".to_string(),
+                    original_duration: 5000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 0,
+                    transition: Some(Transition {
+                        transition_type: "fade".to_string(),
+                        duration: 500.0,
+                    }),
+                },
+                EditorClip {
+                    id: "c2".to_string(),
+                    source_path: "/b.mp4".to_string(),
+                    original_duration: 3000.0,
+                    trim_start: 0.0,
+                    trim_end: 0.0,
+                    order: 1,
+                    transition: None,
+                },
+            ],
+            text_overlays: vec![],
+            output_width: 1920,
+            output_height: 1080,
+        };
+
+        let clip_has_audio = [true, false];
+        let result = build_filter_complex(&project, &clip_has_audio).expect("build xfade mixed audio");
+
+        // First clip has audio, second uses anullsrc
+        assert!(result.filter_complex.contains("[0:a]atrim"), "should have audio trim for clip 0");
+        assert!(result.filter_complex.contains("anullsrc=channel_layout=stereo:sample_rate=48000"), "should have anullsrc for silent clip");
+        // Audio crossfade should still be applied
+        assert!(result.filter_complex.contains("acrossfade=d=0.500"), "should have audio crossfade");
+        assert!(result.audio_output_label.is_some(), "should have audio output");
     }
 }
