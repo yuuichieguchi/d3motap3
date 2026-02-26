@@ -491,6 +491,8 @@ pub fn mux_audio_video(
     // -- Output path --
     args.push(output_str.to_string());
 
+    eprintln!("[audio] FFmpeg mux cmd: {} {}", ffmpeg_path, args.join(" "));
+
     let output = Command::new(&ffmpeg_path)
         .args(&args)
         .output()

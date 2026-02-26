@@ -77,6 +77,8 @@ struct AudioFileHandler {
     write_error: Arc<AtomicBool>,
     detected_sample_rate: Arc<Mutex<Option<f64>>>,
     detected_channel_count: Arc<Mutex<Option<u32>>>,
+    /// Whether the one-time format diagnostic has been logged.
+    format_logged: Arc<AtomicBool>,
 }
 
 impl SCStreamOutputTrait for AudioFileHandler {
@@ -112,31 +114,120 @@ impl SCStreamOutputTrait for AudioFileHandler {
                 // Log once when both are detected
                 if rate.is_some() && channels.is_some() {
                     eprintln!(
-                        "[audio] {:?} detected: sample_rate={} Hz, channels={}",
+                        "[audio] {:?} detected: sample_rate={} Hz, channels={}, is_float={}, bits={}",
                         of_type,
                         rate.map_or("unknown".to_string(), |r| format!("{}", r)),
                         channels.map_or("unknown".to_string(), |c| format!("{}", c)),
+                        is_float,
+                        bits,
                     );
                 }
             }
         }
 
+        // Extract format metadata for data validation and non-interleaved detection
+        let format_flags = sample
+            .format_description()
+            .and_then(|fd| fd.audio_format_flags())
+            .unwrap_or(0);
+        let is_non_interleaved = format_flags & 32 != 0;
+        let num_frames = sample.num_samples();
+        let bytes_per_frame = sample
+            .format_description()
+            .and_then(|fd| fd.audio_bytes_per_frame())
+            .unwrap_or(0);
+
         if let Some(audio_buffers) = sample.audio_buffer_list() {
-            for buffer in &audio_buffers {
-                let raw = buffer.data();
-                if raw.is_empty() {
-                    continue;
+            // One-time format diagnostic (logged on first callback with detected rate/channels)
+            if !self.format_logged.load(Ordering::Relaxed) {
+                if let Some(fd) = sample.format_description() {
+                    let flags = fd.audio_format_flags().unwrap_or(0);
+                    let bpf = fd.audio_bytes_per_frame().unwrap_or(0);
+
+                    let mut buf_info = String::new();
+                    for (i, buf) in audio_buffers.iter().enumerate() {
+                        if !buf_info.is_empty() { buf_info.push_str(", "); }
+                        buf_info.push_str(&format!(
+                            "buf[{}](ch={}, bytes={})",
+                            i, buf.number_channels, buf.data_bytes_size
+                        ));
+                    }
+                    let expected_bytes = num_frames * bpf as usize;
+                    eprintln!(
+                        "[audio] {:?} FORMAT: flags=0x{:02x} bytes_per_frame={} num_samples={} non_interleaved={} {} expected_bytes={}",
+                        of_type, flags, bpf, num_frames, is_non_interleaved, buf_info, expected_bytes
+                    );
+                    self.format_logged.store(true, Ordering::Relaxed);
                 }
+            }
+
+            if is_non_interleaved && audio_buffers.num_buffers() > 1 {
+                // Non-interleaved: collect per-channel buffers and interleave.
+                // In non-interleaved CoreAudio, bytes_per_frame is per-frame-per-channel
+                // (i.e., the size of one sample), NOT the total for all channels.
+                let channel_bufs: Vec<&[u8]> = audio_buffers
+                    .iter()
+                    .map(|b| {
+                        let raw = b.data();
+                        // Truncate to expected size if buffer has padding
+                        let expected = if bytes_per_frame > 0 && num_frames > 0 {
+                            num_frames * bytes_per_frame as usize
+                        } else {
+                            raw.len()
+                        };
+                        if raw.len() > expected && expected > 0 {
+                            &raw[..expected]
+                        } else {
+                            raw
+                        }
+                    })
+                    .filter(|d| !d.is_empty())
+                    .collect();
+                let bytes_per_sample = (bits / 8) as usize;
+                let interleaved = interleave_audio_buffers(&channel_bufs, bytes_per_sample);
                 let f32_data = match (is_float, bits) {
-                    (true, 32) => sanitize_f32_audio(raw),
-                    (false, 16) => convert_s16le_to_f32le(raw),
-                    (false, 32) => convert_s32le_to_f32le(raw),
-                    _ => sanitize_f32_audio(raw),
+                    (true, 32) => sanitize_f32_audio(&interleaved),
+                    (true, 64) => convert_f64le_to_f32le(&interleaved),
+                    (false, 16) => convert_s16le_to_f32le(&interleaved),
+                    (false, 32) => convert_s32le_to_f32le(&interleaved),
+                    _ => sanitize_f32_audio(&interleaved),
                 };
                 if let Ok(mut writer) = self.writer.lock() {
                     if writer.write_all(&f32_data).is_err() {
                         self.write_error.store(true, Ordering::Relaxed);
                         return;
+                    }
+                }
+            } else {
+                // Interleaved (normal path): iterate buffers and write each
+                for buffer in &audio_buffers {
+                    let raw = buffer.data();
+                    if raw.is_empty() {
+                        continue;
+                    }
+                    // Truncate to expected size if buffer has padding
+                    let expected_per_buffer = if bytes_per_frame > 0 && num_frames > 0 {
+                        num_frames * bytes_per_frame as usize
+                    } else {
+                        raw.len()
+                    };
+                    let valid_raw = if raw.len() > expected_per_buffer && expected_per_buffer > 0 {
+                        &raw[..expected_per_buffer]
+                    } else {
+                        raw
+                    };
+                    let f32_data = match (is_float, bits) {
+                        (true, 32) => sanitize_f32_audio(valid_raw),
+                        (true, 64) => convert_f64le_to_f32le(valid_raw),
+                        (false, 16) => convert_s16le_to_f32le(valid_raw),
+                        (false, 32) => convert_s32le_to_f32le(valid_raw),
+                        _ => sanitize_f32_audio(valid_raw),
+                    };
+                    if let Ok(mut writer) = self.writer.lock() {
+                        if writer.write_all(&f32_data).is_err() {
+                            self.write_error.store(true, Ordering::Relaxed);
+                            return;
+                        }
                     }
                 }
             }
@@ -156,6 +247,21 @@ fn sanitize_f32_audio(raw: &[u8]) -> Vec<u8> {
     for chunk in raw.chunks_exact(4) {
         let sample = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
         let clean = if sample.is_normal() || sample == 0.0 { sample } else { 0.0f32 };
+        result.extend_from_slice(&clean.to_le_bytes());
+    }
+    result
+}
+
+/// Convert 64-bit float little-endian PCM to f32le.
+fn convert_f64le_to_f32le(raw: &[u8]) -> Vec<u8> {
+    let mut result = Vec::with_capacity(raw.len() / 2);
+    for chunk in raw.chunks_exact(8) {
+        let sample = f64::from_le_bytes([
+            chunk[0], chunk[1], chunk[2], chunk[3],
+            chunk[4], chunk[5], chunk[6], chunk[7],
+        ]);
+        let f32_sample = if sample.is_finite() { sample as f32 } else { 0.0f32 };
+        let clean = if f32_sample.is_normal() || f32_sample == 0.0 { f32_sample } else { 0.0f32 };
         result.extend_from_slice(&clean.to_le_bytes());
     }
     result
@@ -184,6 +290,38 @@ fn convert_s32le_to_f32le(raw: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
+// interleave_audio_buffers
+// ---------------------------------------------------------------------------
+
+/// Interleave planar audio buffers into interleaved format.
+///
+/// Works with any sample size (f32=4, f64=8, s16=2, s32=4 bytes per sample).
+/// Input: slice of per-channel byte slices (each `&[u8]` is samples for one channel)
+/// and the number of bytes per sample.
+/// Output: interleaved bytes `[L0,R0,L1,R1,...]`.
+fn interleave_audio_buffers(channel_buffers: &[&[u8]], bytes_per_sample: usize) -> Vec<u8> {
+    if channel_buffers.is_empty() || bytes_per_sample == 0 {
+        return Vec::new();
+    }
+    let num_channels = channel_buffers.len();
+    let samples_per_channel = channel_buffers[0].len() / bytes_per_sample;
+    let mut result = Vec::with_capacity(samples_per_channel * num_channels * bytes_per_sample);
+
+    for sample_idx in 0..samples_per_channel {
+        for ch_buf in channel_buffers {
+            let offset = sample_idx * bytes_per_sample;
+            if offset + bytes_per_sample <= ch_buf.len() {
+                result.extend_from_slice(&ch_buf[offset..offset + bytes_per_sample]);
+            } else {
+                // Zero-pad if the channel buffer is shorter than expected
+                result.resize(result.len() + bytes_per_sample, 0);
+            }
+        }
+    }
+    result
+}
+
+// ---------------------------------------------------------------------------
 // AudioRecorder
 // ---------------------------------------------------------------------------
 
@@ -204,6 +342,8 @@ pub struct AudioRecorder {
     mic_detected_sample_rate: Arc<Mutex<Option<f64>>>,
     system_detected_channel_count: Arc<Mutex<Option<u32>>>,
     mic_detected_channel_count: Arc<Mutex<Option<u32>>>,
+    system_format_logged: Arc<AtomicBool>,
+    mic_format_logged: Arc<AtomicBool>,
 }
 
 // SCStream is not marked Send/Sync by the crate.  We guard access through
@@ -261,6 +401,8 @@ impl AudioRecorder {
         let mic_detected_sample_rate = Arc::new(Mutex::new(None));
         let system_detected_channel_count: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
         let mic_detected_channel_count: Arc<Mutex<Option<u32>>> = Arc::new(Mutex::new(None));
+        let system_format_logged = Arc::new(AtomicBool::new(false));
+        let mic_format_logged = Arc::new(AtomicBool::new(false));
 
         // -- system audio output handler --
         let mut system_writer: Option<Arc<Mutex<BufWriter<File>>>> = None;
@@ -276,6 +418,7 @@ impl AudioRecorder {
                 write_error: Arc::clone(&system_write_error),
                 detected_sample_rate: Arc::clone(&system_detected_sample_rate),
                 detected_channel_count: Arc::clone(&system_detected_channel_count),
+                format_logged: Arc::clone(&system_format_logged),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Audio);
             system_writer = Some(writer);
@@ -296,6 +439,7 @@ impl AudioRecorder {
                 write_error: Arc::clone(&mic_write_error),
                 detected_sample_rate: Arc::clone(&mic_detected_sample_rate),
                 detected_channel_count: Arc::clone(&mic_detected_channel_count),
+                format_logged: Arc::clone(&mic_format_logged),
             };
             stream.add_output_handler(handler, SCStreamOutputType::Microphone);
             mic_writer = Some(writer);
@@ -318,6 +462,8 @@ impl AudioRecorder {
             mic_detected_sample_rate,
             system_detected_channel_count,
             mic_detected_channel_count,
+            system_format_logged,
+            mic_format_logged,
         })
     }
 
@@ -354,18 +500,6 @@ impl AudioRecorder {
             eprintln!("[audio] Warning: write errors occurred during mic audio recording");
         }
 
-        // Read detected values
-        let detected_system_channels = self
-            .system_detected_channel_count
-            .lock()
-            .ok()
-            .and_then(|c| *c);
-        let detected_mic_channels = self
-            .mic_detected_channel_count
-            .lock()
-            .ok()
-            .and_then(|c| *c);
-
         Ok(AudioTempFiles {
             system_audio_path: self.system_audio_path,
             mic_audio_path: self.mic_audio_path,
@@ -381,8 +515,16 @@ impl AudioRecorder {
                 .ok()
                 .and_then(|r| *r)
                 .map(|r| r.round() as u32),
-            system_channel_count: detected_system_channels,
-            mic_channel_count: detected_mic_channels,
+            system_channel_count: self
+                .system_detected_channel_count
+                .lock()
+                .ok()
+                .and_then(|c| *c),
+            mic_channel_count: self
+                .mic_detected_channel_count
+                .lock()
+                .ok()
+                .and_then(|c| *c),
         })
     }
 }
@@ -672,5 +814,93 @@ mod tests {
         let output = sanitize_f32_audio(&input);
         let result = f32::from_le_bytes([output[0], output[1], output[2], output[3]]);
         assert_eq!(result, 0.0);
+    }
+
+    // -----------------------------------------------------------------------
+    // interleave_audio_buffers
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_interleave_audio_buffers_f32_two_channels() {
+        // 2 channels, 3 samples each: L=[1.0,2.0,3.0] R=[4.0,5.0,6.0]
+        let ch_l: Vec<u8> = [1.0f32, 2.0, 3.0]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let ch_r: Vec<u8> = [4.0f32, 5.0, 6.0]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+
+        let result = interleave_audio_buffers(&[&ch_l, &ch_r], 4);
+
+        // Expected interleaved: [1.0,4.0,2.0,5.0,3.0,6.0]
+        assert_eq!(result.len(), 6 * 4);
+        let samples: Vec<f32> = result
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        assert_eq!(samples, vec![1.0, 4.0, 2.0, 5.0, 3.0, 6.0]);
+    }
+
+    #[test]
+    fn test_interleave_audio_buffers_s16_two_channels() {
+        // 2 channels, 3 s16le samples each (2 bytes per sample)
+        let ch_l: Vec<u8> = [100i16, 200, 300]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let ch_r: Vec<u8> = [400i16, 500, 600]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+
+        let result = interleave_audio_buffers(&[&ch_l, &ch_r], 2);
+
+        assert_eq!(result.len(), 6 * 2);
+        let samples: Vec<i16> = result
+            .chunks_exact(2)
+            .map(|c| i16::from_le_bytes([c[0], c[1]]))
+            .collect();
+        assert_eq!(samples, vec![100, 400, 200, 500, 300, 600]);
+    }
+
+    #[test]
+    fn test_interleave_audio_buffers_empty() {
+        let result = interleave_audio_buffers(&[], 4);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_interleave_audio_buffers_zero_bytes_per_sample() {
+        let ch: Vec<u8> = vec![1, 2, 3, 4];
+        let result = interleave_audio_buffers(&[&ch], 0);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_interleave_audio_buffers_different_lengths() {
+        // Channel 0 has 3 samples, channel 1 has only 2 samples (shorter)
+        let ch0: Vec<u8> = [1.0f32, 2.0, 3.0]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+        let ch1: Vec<u8> = [4.0f32, 5.0]
+            .iter()
+            .flat_map(|s| s.to_le_bytes())
+            .collect();
+
+        let result = interleave_audio_buffers(&[&ch0, &ch1], 4);
+
+        // samples_per_channel = ch0.len()/4 = 3 (based on first channel)
+        // Sample 0: 1.0, 4.0
+        // Sample 1: 2.0, 5.0
+        // Sample 2: 3.0, 0.0 (ch1 too short, zero-padded)
+        assert_eq!(result.len(), 6 * 4);
+        let samples: Vec<f32> = result
+            .chunks_exact(4)
+            .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
+            .collect();
+        assert_eq!(samples, vec![1.0, 4.0, 2.0, 5.0, 3.0, 0.0]);
     }
 }

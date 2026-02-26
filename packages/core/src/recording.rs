@@ -281,6 +281,7 @@ struct RecordingHandleV2 {
     audio_config_sample_rate: u32,
     audio_channel_count: u32,
     audio_mic_channel_count: u32,
+    hardware_sample_rate: Option<u32>,
     final_output_path: PathBuf,
 }
 
@@ -320,23 +321,22 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
     RECORDING_V2_ACTIVE.store(true, Ordering::Relaxed);
     let start_time = Instant::now();
 
-    // Audio setup — query hardware sample rate BEFORE starting SCK
-    let system_output_sr = if config.capture_system_audio {
+    // Audio setup — detect hardware sample rate for pitch compensation
+    let hardware_sample_rate = if config.capture_system_audio {
         audio::get_default_output_sample_rate()
     } else {
         None
     };
-    let audio_sample_rate = system_output_sr.unwrap_or(48_000);
     eprintln!(
-        "[audio] using sample rate: {} Hz (detected={:?})",
-        audio_sample_rate, system_output_sr
+        "[audio] hardware output rate: {:?}",
+        hardware_sample_rate
     );
 
     let audio_config = audio::AudioConfig {
         capture_system_audio: config.capture_system_audio,
         capture_microphone: config.capture_microphone,
         microphone_device_id: config.microphone_device_id.clone(),
-        sample_rate: audio_sample_rate,
+        sample_rate: 48_000, // Always 48000 for SCK (it ignores other values anyway)
         ..audio::AudioConfig::default()
     };
     let audio_enabled = audio_config.is_enabled() && format != OutputFormat::Gif;
@@ -532,6 +532,7 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         } else {
             audio_config.mic_channel_count
         },
+        hardware_sample_rate,
         final_output_path,
     });
 
@@ -595,13 +596,24 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 _ => crate::encoder::OutputFormat::Mp4,
             };
 
-            // SCK ignores with_sample_rate() and reports 48kHz in
-            // CMFormatDescription regardless of the actual hardware rate.
-            // Always use the pre-detected hardware rate for system audio.
-            let system_sr = handle.audio_config_sample_rate;
-            let mic_sr = audio_temp
-                .mic_sample_rate
-                .unwrap_or(handle.audio_config_sample_rate);
+            // format_desc rate is what SCK reports (usually 48000)
+            let format_desc_sr = audio_temp.system_sample_rate.unwrap_or(48_000);
+
+            // If hardware rate is lower than format_desc rate, SCK may have
+            // incorrectly resampled. Use hardware rate as FFmpeg input rate
+            // to compensate for potential pitch shift.
+            let system_sr = match handle.hardware_sample_rate {
+                Some(hw_rate) if hw_rate < format_desc_sr => {
+                    eprintln!(
+                        "[audio] pitch compensation: using hardware rate {} instead of format_desc {}",
+                        hw_rate, format_desc_sr
+                    );
+                    hw_rate
+                }
+                _ => format_desc_sr,
+            };
+
+            let mic_sr = audio_temp.mic_sample_rate.unwrap_or(48_000);
 
             // Use detected channel counts when available, fall back to config
             let system_ch = audio_temp
@@ -612,8 +624,11 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 .unwrap_or(handle.audio_mic_channel_count);
 
             eprintln!(
-                "[audio] mux params: system_sr={} mic_sr={} system_ch={} mic_ch={}",
-                system_sr, mic_sr, system_ch, mic_ch
+                "[audio] mux rates: format_desc={:?} hardware={:?} -> system_sr={} mic_sr={}",
+                audio_temp.system_sample_rate,
+                handle.hardware_sample_rate,
+                system_sr,
+                mic_sr,
             );
 
             let mux_result = crate::encoder::mux_audio_video(
