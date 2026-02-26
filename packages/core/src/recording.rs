@@ -595,11 +595,10 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 _ => crate::encoder::OutputFormat::Mp4,
             };
 
-            // SCK was configured with the correct hardware rate, so
-            // format_desc matches the actual data.
-            let system_sr = audio_temp
-                .system_sample_rate
-                .unwrap_or(handle.audio_config_sample_rate);
+            // SCK ignores with_sample_rate() and reports 48kHz in
+            // CMFormatDescription regardless of the actual hardware rate.
+            // Always use the pre-detected hardware rate for system audio.
+            let system_sr = handle.audio_config_sample_rate;
             let mic_sr = audio_temp
                 .mic_sample_rate
                 .unwrap_or(handle.audio_config_sample_rate);
