@@ -596,23 +596,10 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 _ => crate::encoder::OutputFormat::Mp4,
             };
 
-            // format_desc rate is what SCK reports (usually 48000)
-            let format_desc_sr = audio_temp.system_sample_rate.unwrap_or(48_000);
-
-            // If hardware rate is lower than format_desc rate, SCK may have
-            // incorrectly resampled. Use hardware rate as FFmpeg input rate
-            // to compensate for potential pitch shift.
-            let system_sr = match handle.hardware_sample_rate {
-                Some(hw_rate) if hw_rate < format_desc_sr => {
-                    eprintln!(
-                        "[audio] pitch compensation: using hardware rate {} instead of format_desc {}",
-                        hw_rate, format_desc_sr
-                    );
-                    hw_rate
-                }
-                _ => format_desc_sr,
-            };
-
+            // Use format_desc rate directly — SCK delivers at this rate
+            // regardless of with_sample_rate() config. The actual pitch issue
+            // was caused by non-interleaved data (now handled in system.rs).
+            let system_sr = audio_temp.system_sample_rate.unwrap_or(48_000);
             let mic_sr = audio_temp.mic_sample_rate.unwrap_or(48_000);
 
             // Use detected channel counts when available, fall back to config
@@ -624,11 +611,8 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
                 .unwrap_or(handle.audio_mic_channel_count);
 
             eprintln!(
-                "[audio] mux rates: format_desc={:?} hardware={:?} -> system_sr={} mic_sr={}",
-                audio_temp.system_sample_rate,
-                handle.hardware_sample_rate,
-                system_sr,
-                mic_sr,
+                "[audio] mux params: system_sr={} mic_sr={} system_ch={} mic_ch={}",
+                system_sr, mic_sr, system_ch, mic_ch,
             );
 
             let mux_result = crate::encoder::mux_audio_video(
