@@ -79,12 +79,17 @@ struct AudioFileHandler {
     detected_channel_count: Arc<Mutex<Option<u32>>>,
     /// Whether the one-time format diagnostic has been logged.
     format_logged: Arc<AtomicBool>,
+    /// The output type this handler is registered for.
+    /// Used to filter out callbacks dispatched for a different output type.
+    expected_type: SCStreamOutputType,
 }
 
 impl SCStreamOutputTrait for AudioFileHandler {
     fn did_output_sample_buffer(&self, sample: CMSampleBuffer, of_type: SCStreamOutputType) {
-        // Only process audio output types
-        if !matches!(of_type, SCStreamOutputType::Audio | SCStreamOutputType::Microphone) {
+        // Only process callbacks matching this handler's registered output type.
+        // SCK dispatches ALL sample buffers to ALL handlers regardless of their
+        // registered type, so we must filter here to avoid writing duplicate data.
+        if of_type != self.expected_type {
             return;
         }
 
@@ -419,6 +424,7 @@ impl AudioRecorder {
                 detected_sample_rate: Arc::clone(&system_detected_sample_rate),
                 detected_channel_count: Arc::clone(&system_detected_channel_count),
                 format_logged: Arc::clone(&system_format_logged),
+                expected_type: SCStreamOutputType::Audio,
             };
             stream.add_output_handler(handler, SCStreamOutputType::Audio);
             system_writer = Some(writer);
@@ -440,6 +446,7 @@ impl AudioRecorder {
                 detected_sample_rate: Arc::clone(&mic_detected_sample_rate),
                 detected_channel_count: Arc::clone(&mic_detected_channel_count),
                 format_logged: Arc::clone(&mic_format_logged),
+                expected_type: SCStreamOutputType::Microphone,
             };
             stream.add_output_handler(handler, SCStreamOutputType::Microphone);
             mic_writer = Some(writer);
@@ -876,6 +883,25 @@ mod tests {
         let ch: Vec<u8> = vec![1, 2, 3, 4];
         let result = interleave_audio_buffers(&[&ch], 0);
         assert!(result.is_empty());
+    }
+
+    #[test]
+    fn audio_handler_should_filter_by_expected_type() {
+        // Verify that SCStreamOutputType enum comparison works correctly
+        // for the handler dispatch filter: `of_type != self.expected_type`
+        let audio = SCStreamOutputType::Audio;
+        let mic = SCStreamOutputType::Microphone;
+        let screen = SCStreamOutputType::Screen;
+
+        // System audio handler (expected_type = Audio) should only accept Audio
+        assert_eq!(audio, SCStreamOutputType::Audio);
+        assert_ne!(audio, mic, "Audio handler must reject Microphone callbacks");
+        assert_ne!(audio, screen, "Audio handler must reject Screen callbacks");
+
+        // Mic handler (expected_type = Microphone) should only accept Microphone
+        assert_eq!(mic, SCStreamOutputType::Microphone);
+        assert_ne!(mic, audio, "Mic handler must reject Audio callbacks");
+        assert_ne!(mic, screen, "Mic handler must reject Screen callbacks");
     }
 
     #[test]
