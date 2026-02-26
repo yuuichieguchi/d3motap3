@@ -584,18 +584,17 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
             };
 
             // Priority for sample rate:
-            // 1. CMTime.timescale (actual hardware rate from buffer timing)
-            // 2. File-size computed rate (snapped to standard rate)
-            // 3. CMFormatDescription (may return configured rate, not actual)
-            // 4. Config default (48kHz)
+            // 1. File-size computed rate (snapped to standard rate)
+            // 2. CMFormatDescription (may return configured rate, not actual)
+            // 3. Config default (48kHz)
+            // NOTE: CMTime.timescale is NOT the sample rate — it's the PTS
+            // clock precision (typically 1,000,000,000 = nanoseconds).
             let system_sr = audio_temp
-                .system_timescale_sample_rate
-                .or(audio_temp.computed_system_sample_rate)
+                .computed_system_sample_rate
                 .or(audio_temp.system_sample_rate)
                 .unwrap_or(handle.audio_config_sample_rate);
             let mic_sr = audio_temp
-                .mic_timescale_sample_rate
-                .or(audio_temp.computed_mic_sample_rate)
+                .computed_mic_sample_rate
                 .or(audio_temp.mic_sample_rate)
                 .unwrap_or(handle.audio_config_sample_rate);
 
