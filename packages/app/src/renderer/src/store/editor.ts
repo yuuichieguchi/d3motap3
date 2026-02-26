@@ -6,7 +6,8 @@ let nextOverlayId = 1
 
 interface EditorState {
   project: EditorProject
-  selectedClipId: string | null
+  selectedClipIds: string[]
+  lastSelectedClipId: string | null
   selectedOverlayId: string | null
   currentTimeMs: number
   isPlaying: boolean
@@ -37,7 +38,8 @@ interface EditorState {
   setPlaying: (playing: boolean) => void
   
   // Selection
-  selectClip: (clipId: string | null) => void
+  selectClip: (clipId: string | null, mode?: 'single' | 'toggle' | 'range') => void
+  removeSelectedClips: () => void
   selectOverlay: (overlayId: string | null) => void
   
   // Export
@@ -62,7 +64,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     outputWidth: 1920,
     outputHeight: 1080,
   },
-  selectedClipId: null,
+  selectedClipIds: [],
+  lastSelectedClipId: null,
   selectedOverlayId: null,
   currentTimeMs: 0,
   isPlaying: false,
@@ -137,7 +140,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       project: { ...state.project, clips },
       clipMetadata: newMetadata,
       clipThumbnails: newThumbs,
-      selectedClipId: state.selectedClipId === clipId ? null : state.selectedClipId,
+      selectedClipIds: state.selectedClipIds.filter(id => id !== clipId),
+      lastSelectedClipId: state.lastSelectedClipId === clipId ? null : state.lastSelectedClipId,
     }
   }),
 
@@ -217,7 +221,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     
     return {
       project: { ...state.project, clips },
-      selectedClipId: clip1.id,
+      selectedClipIds: [clip1.id],
+      lastSelectedClipId: clip1.id,
     }
   }),
 
@@ -257,8 +262,72 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setCurrentTime: (ms) => set({ currentTimeMs: ms }),
   setPlaying: (playing) => set({ isPlaying: playing }),
 
-  selectClip: (clipId) => set({ selectedClipId: clipId, selectedOverlayId: null }),
-  selectOverlay: (overlayId) => set({ selectedOverlayId: overlayId, selectedClipId: null }),
+  selectClip: (clipId, mode = 'single') => set((state) => {
+    if (clipId === null) {
+      return { selectedClipIds: [], lastSelectedClipId: null, selectedOverlayId: null }
+    }
+
+    switch (mode) {
+      case 'toggle': {
+        const isSelected = state.selectedClipIds.includes(clipId)
+        const newIds = isSelected
+          ? state.selectedClipIds.filter(id => id !== clipId)
+          : [...state.selectedClipIds, clipId]
+        return {
+          selectedClipIds: newIds,
+          lastSelectedClipId: isSelected ? (newIds.length > 0 ? newIds[newIds.length - 1] : null) : clipId,
+          selectedOverlayId: null,
+        }
+      }
+      case 'range': {
+        const anchor = state.lastSelectedClipId
+        if (!anchor) {
+          return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null }
+        }
+        const sorted = [...state.project.clips].sort((a, b) => a.order - b.order)
+        const anchorIdx = sorted.findIndex(c => c.id === anchor)
+        const targetIdx = sorted.findIndex(c => c.id === clipId)
+        if (anchorIdx === -1 || targetIdx === -1) {
+          return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null }
+        }
+        const start = Math.min(anchorIdx, targetIdx)
+        const end = Math.max(anchorIdx, targetIdx)
+        const rangeIds = sorted.slice(start, end + 1).map(c => c.id)
+        return { selectedClipIds: rangeIds, selectedOverlayId: null }
+      }
+      default:
+        return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null }
+    }
+  }),
+
+  removeSelectedClips: () => set((state) => {
+    const idsToRemove = new Set(state.selectedClipIds)
+    if (idsToRemove.size === 0) return state
+
+    const clips = state.project.clips
+      .filter(c => !idsToRemove.has(c.id))
+      .sort((a, b) => a.order - b.order)
+      .map((c, i) => ({ ...c, order: i }))
+
+    const newMetadata = new Map(state.clipMetadata)
+    const newThumbs = new Map(state.clipThumbnails)
+    for (const id of idsToRemove) {
+      newMetadata.delete(id)
+      const oldUrls = newThumbs.get(id)
+      if (oldUrls) oldUrls.forEach(URL.revokeObjectURL)
+      newThumbs.delete(id)
+    }
+
+    return {
+      project: { ...state.project, clips },
+      clipMetadata: newMetadata,
+      clipThumbnails: newThumbs,
+      selectedClipIds: [],
+      lastSelectedClipId: null,
+    }
+  }),
+
+  selectOverlay: (overlayId) => set({ selectedOverlayId: overlayId, selectedClipIds: [], lastSelectedClipId: null }),
 
   startExport: async (outputPath) => {
     const { project } = get()
@@ -359,7 +428,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         outputWidth: 1920,
         outputHeight: 1080,
       },
-      selectedClipId: null,
+      selectedClipIds: [],
+      lastSelectedClipId: null,
       selectedOverlayId: null,
       currentTimeMs: 0,
       isPlaying: false,
@@ -369,3 +439,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     })
   },
 }))
+
+if (typeof window !== 'undefined') {
+  (window as any).__editorStore = useEditorStore
+}

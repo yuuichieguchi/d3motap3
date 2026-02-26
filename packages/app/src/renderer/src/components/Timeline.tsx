@@ -47,8 +47,14 @@ export function Timeline() {
   }, [contextMenu]);
 
   const handleClipClick = useCallback(
-    (clipId: string) => {
-      store.selectClip(clipId);
+    (e: React.MouseEvent, clipId: string) => {
+      if (e.metaKey || e.ctrlKey) {
+        store.selectClip(clipId, "toggle");
+      } else if (e.shiftKey) {
+        store.selectClip(clipId, "range");
+      } else {
+        store.selectClip(clipId, "single");
+      }
     },
     [store],
   );
@@ -156,7 +162,7 @@ export function Timeline() {
 
         {clips.map((clip, index) => {
           const width = getClipWidth(clip);
-          const isSelected = store.selectedClipId === clip.id;
+          const isSelected = store.selectedClipIds.includes(clip.id);
           const thumbnails = store.clipThumbnails.get(clip.id);
           const isLastClip = index === clips.length - 1;
 
@@ -170,11 +176,14 @@ export function Timeline() {
                 className={`timeline-clip ${isSelected ? "selected" : ""}`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  handleClipClick(clip.id);
+                  handleClipClick(e, clip.id);
                 }}
                 onContextMenu={(e) => {
                   e.preventDefault();
                   e.stopPropagation();
+                  if (!store.selectedClipIds.includes(clip.id)) {
+                    store.selectClip(clip.id, "single");
+                  }
                   setContextMenu({
                     x: e.clientX,
                     y: e.clientY,
@@ -271,14 +280,20 @@ export function Timeline() {
               className="timeline-context-menu-item"
               onClick={() => {
                 if (contextMenu.type === "clip") {
-                  store.removeClip(contextMenu.id);
+                  if (store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)) {
+                    store.removeSelectedClips();
+                  } else {
+                    store.removeClip(contextMenu.id);
+                  }
                 } else {
                   store.removeTextOverlay(contextMenu.id);
                 }
                 setContextMenu(null);
               }}
             >
-              Delete
+              {contextMenu.type === "clip" && store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)
+                ? `Delete (${store.selectedClipIds.length} selected)`
+                : "Delete"}
             </button>
           </div>,
           document.body,

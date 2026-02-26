@@ -98,10 +98,10 @@ export function EditorView() {
   }, [store])
 
   const handleSplit = useCallback(() => {
-    if (!store.selectedClipId) return
+    if (!store.lastSelectedClipId) return
     const result = getClipAtTime(store.currentTimeMs)
-    if (result && result.clip.id === store.selectedClipId) {
-      store.splitClip(store.selectedClipId, result.localTime)
+    if (result && result.clip.id === store.lastSelectedClipId) {
+      store.splitClip(store.lastSelectedClipId, result.localTime)
     }
   }, [store, getClipAtTime])
 
@@ -163,7 +163,7 @@ export function EditorView() {
       <div className="editor-toolbar">
         <button onClick={handleImport}>+ Clip</button>
         <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
-        <button onClick={handleSplit} disabled={!store.selectedClipId}>Split</button>
+        <button onClick={handleSplit} disabled={!store.lastSelectedClipId}>Split</button>
       </div>
 
       {/* Playback controls */}
