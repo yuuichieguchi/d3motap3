@@ -1771,3 +1771,9 @@ body {
   border-color: var(--accent);
   box-shadow: var(--accent-glow);
 }
+
+.editor-view .show-in-finder-btn {
+  background: rgba(0, 122, 255, 0.15);
+  color: rgba(180, 215, 255, 0.95);
+  border-color: rgba(0, 122, 255, 0.4);
+}
