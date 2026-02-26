@@ -1,0 +1,22 @@
+appId: com.d3motap3.app
+productName: d3motap3
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+asarUnpack:
+  - "node_modules/@d3motap3/core/**"
+npmRebuild: false
+mac:
+  target:
+    - target: dmg
+      arch: arm64
+  category: public.app-category.video
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  identity: null
+dmg:
+  artifactName: "${productName}-${version}-arm64.${ext}"
+afterPack: scripts/afterPack.cjs
