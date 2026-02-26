@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app } from 'electron'
+import { ipcMain, dialog, app, shell } from 'electron'
 import { join } from 'path'
 import { nativeBridge } from './native-bridge'
 
@@ -234,6 +234,29 @@ export function registerIpcHandlers(): void {
       return null
     }
     return result.filePaths[0]
+  })
+
+  ipcMain.handle('dialog:save-file', async (_event, options: {
+    defaultDir?: 'home' | 'desktop' | 'documents' | 'downloads' | 'music' | 'pictures' | 'videos' | 'temp'
+    defaultFilename?: string
+    filters?: Array<{ name: string; extensions: string[] }>
+  }) => {
+    const dir = options.defaultDir ? app.getPath(options.defaultDir) : app.getPath('videos')
+    const defaultPath = options.defaultFilename ? join(dir, options.defaultFilename) : dir
+    const result = await dialog.showSaveDialog({
+      defaultPath,
+      filters: options.filters,
+    })
+    if (result.canceled || !result.filePath) {
+      return null
+    }
+    return result.filePath
+  })
+
+  ipcMain.handle('shell:show-item-in-folder', (_event, fullPath: string) => {
+    if (typeof fullPath === 'string' && fullPath.length > 0) {
+      shell.showItemInFolder(fullPath)
+    }
   })
 
   // Region Selector

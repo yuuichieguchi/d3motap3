@@ -107,10 +107,15 @@ export function EditorView() {
 
   const handleExport = useCallback(async () => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const filename = `d3motap3-edit-${timestamp}.mp4`
-    // The path will be resolved by the export handler
+    const defaultFilename = `d3motap3-edit-${timestamp}.mp4`
     try {
-      await store.startExport(filename)
+      const outputPath = await window.api.invoke('dialog:save-file', {
+        defaultDir: 'videos',
+        defaultFilename,
+        filters: [{ name: 'Video Files', extensions: ['mp4'] }],
+      }) as string | null
+      if (!outputPath) return
+      await store.startExport(outputPath)
     } catch (err) {
       console.error('Failed to start export:', err)
     }
@@ -202,7 +207,20 @@ export function EditorView() {
         </div>
       )}
       {store.exportStatus.status === 'completed' && (
-        <div className="result-box">Export completed</div>
+        <div className="result-box">
+          <p>Export completed</p>
+          {store.exportOutputPath && (
+            <>
+              <p className="result-path">{store.exportOutputPath}</p>
+              <button
+                className="show-in-finder-btn"
+                onClick={() => { window.api.invoke('shell:show-item-in-folder', store.exportOutputPath!).catch(() => {}) }}
+              >
+                Show in Finder
+              </button>
+            </>
+          )}
+        </div>
       )}
       {store.exportStatus.status === 'failed' && (
         <div className="error-box">Export failed: {store.exportStatus.error}</div>

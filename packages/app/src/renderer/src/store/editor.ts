@@ -15,6 +15,7 @@ interface EditorState {
   clipThumbnails: Map<string, string[]>  // clip id -> data URL array
   exportStatus: EditorExportStatus
   exportPollingInterval: ReturnType<typeof setInterval> | null
+  exportOutputPath: string | null
 
   // Project actions
   setOutputResolution: (w: number, h: number) => void
@@ -73,6 +74,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   clipThumbnails: new Map(),
   exportStatus: { status: 'idle' },
   exportPollingInterval: null,
+  exportOutputPath: null,
 
   setOutputResolution: (w, h) => set((state) => ({
     project: { ...state.project, outputWidth: w, outputHeight: h },
@@ -330,6 +332,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   selectOverlay: (overlayId) => set({ selectedOverlayId: overlayId, selectedClipIds: [], lastSelectedClipId: null }),
 
   startExport: async (outputPath) => {
+    set({ exportOutputPath: null })
     const { project } = get()
     // Convert camelCase to snake_case for Rust backend
     const projectForRust = {
@@ -360,6 +363,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
     try {
       await window.api.invoke('editor:export', JSON.stringify(projectForRust), outputPath)
+      set({ exportOutputPath: outputPath })
       get().startExportPolling()
     } catch (err) {
       set({ exportStatus: { status: 'failed', progress: 0, error: err instanceof Error ? err.message : String(err) } })
@@ -436,6 +440,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       clipMetadata: new Map(),
       clipThumbnails: new Map(),
       exportStatus: { status: 'idle' },
+      exportOutputPath: null,
     })
   },
 }))
