@@ -1,6 +1,7 @@
 {
   "name": "@d3motap3/app",
   "version": "0.1.0",
+  "productName": "d3motap3",
   "private": true,
   "main": "./out/main/index.js",
   "scripts": {
