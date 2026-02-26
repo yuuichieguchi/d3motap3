@@ -1,5 +1,5 @@
 import { useRef, useCallback, useEffect } from 'react'
-import { useEditorStore } from '../store/editor'
+import { useEditorStore, consumeUserSeek } from '../store/editor'
 import { Timeline } from './Timeline'
 import { TextOverlayEditor } from './TextOverlayEditor'
 
@@ -35,6 +35,7 @@ export function EditorView() {
     if (result) {
       const clipChanged = currentSourcePathRef.current !== result.clip.sourcePath
       if (clipChanged) {
+        consumeUserSeek()
         currentSourcePathRef.current = result.clip.sourcePath
         videoRef.current.src = `media://local${result.clip.sourcePath}`
         videoRef.current.currentTime = result.localTime / 1000
@@ -42,7 +43,10 @@ export function EditorView() {
           videoRef.current.play()
         }
       } else if (!isPlaying) {
-        // Only seek when not playing (user scrubbing the timeline)
+        // Seek when not playing (user scrubbing the timeline)
+        videoRef.current.currentTime = result.localTime / 1000
+      } else if (consumeUserSeek()) {
+        // Seek during playback (user operated seek bar or timeline)
         videoRef.current.currentTime = result.localTime / 1000
       }
     } else {
@@ -122,7 +126,7 @@ export function EditorView() {
   }, [store])
 
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    store.setCurrentTime(Number(e.target.value))
+    store.seekTo(Number(e.target.value))
   }, [store])
 
   const totalDuration = store.totalDuration()

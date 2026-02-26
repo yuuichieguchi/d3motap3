@@ -4,6 +4,14 @@ import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExpor
 let nextClipId = 1
 let nextOverlayId = 1
 
+let _userSeek = false
+
+export function consumeUserSeek(): boolean {
+  const v = _userSeek
+  _userSeek = false
+  return v
+}
+
 interface EditorState {
   project: EditorProject
   selectedClipIds: string[]
@@ -36,6 +44,7 @@ interface EditorState {
   
   // Playback
   setCurrentTime: (ms: number) => void
+  seekTo: (ms: number) => void
   setPlaying: (playing: boolean) => void
   
   // Selection
@@ -262,6 +271,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   })),
 
   setCurrentTime: (ms) => set({ currentTimeMs: ms }),
+  seekTo: (ms) => {
+    _userSeek = true
+    set({ currentTimeMs: ms })
+  },
   setPlaying: (playing) => set({ isPlaying: playing }),
 
   selectClip: (clipId, mode = 'single') => set((state) => {
@@ -425,6 +438,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     clipThumbnails.forEach((urls) => urls.forEach(URL.revokeObjectURL))
     nextClipId = 1
     nextOverlayId = 1
+    _userSeek = false
     set({
       project: {
         clips: [],

@@ -93,7 +93,7 @@ export function Timeline() {
     const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
     const duration = useEditorStore.getState().totalDuration();
     const timeMs = ratio * duration;
-    useEditorStore.getState().setCurrentTime(timeMs);
+    useEditorStore.getState().seekTo(timeMs);
   }, []);
 
   const handlePlayheadMouseDown = useCallback(
