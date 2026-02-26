@@ -364,6 +364,39 @@ pub fn get_ffmpeg_version() -> Result<String, String> {
 // Audio/video muxing
 // ---------------------------------------------------------------------------
 
+/// Build the FFmpeg filter_complex string for merging system audio and mic audio.
+///
+/// When sample rates differ, inserts an aresample filter on the mic stream
+/// to match the system sample rate before amerge.
+fn build_amerge_filter(
+    system_sample_rate: u32,
+    mic_sample_rate: u32,
+    system_channel_count: u32,
+    mic_channel_count: u32,
+) -> String {
+    let mic_start = system_channel_count;
+    let pan = format!(
+        "pan=stereo|c0<c0+c{}|c1<c{}+c{}",
+        mic_start,
+        system_channel_count - 1,
+        mic_start + mic_channel_count - 1,
+    );
+
+    if system_sample_rate != mic_sample_rate {
+        // Resample mic to match system sample rate before amerge
+        // amerge requires all inputs to have the same sample rate
+        format!(
+            "[2:a]aresample={}[mic_r];[1:a][mic_r]amerge=inputs=2,{}[aout]",
+            system_sample_rate, pan,
+        )
+    } else {
+        format!(
+            "[1:a][2:a]amerge=inputs=2,{}[aout]",
+            pan,
+        )
+    }
+}
+
 /// Mux video and audio files into a single output file.
 ///
 /// Called after recording stops to combine the video-only temp file with
@@ -456,12 +489,11 @@ pub fn mux_audio_video(
             // system channels (0..system_channel_count), then mic channels.
             // For stereo system (2ch) + mono mic (1ch): c0=sysL, c1=sysR, c2=mic
             // For stereo system (2ch) + stereo mic (2ch): c0=sysL, c1=sysR, c2=micL, c3=micR
-            let mic_start = system_channel_count;
-            let filter = format!(
-                "[1:a][2:a]amerge=inputs=2,pan=stereo|c0<c0+c{}|c1<c{}+c{}[aout]",
-                mic_start,
-                system_channel_count - 1,
-                mic_start + mic_channel_count - 1,
+            let filter = build_amerge_filter(
+                system_sample_rate,
+                mic_sample_rate,
+                system_channel_count,
+                mic_channel_count,
             );
             args.push("-filter_complex".to_string());
             args.push(filter);
@@ -516,4 +548,33 @@ pub fn mux_audio_video(
 /// Push a slice of `&str` into a `Vec<String>`.
 fn push_args(dest: &mut Vec<String>, args: &[&str]) {
     dest.extend(args.iter().map(|s| (*s).to_string()));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn amerge_filter_same_sample_rate_no_resample() {
+        // When both sources have the same sample rate, no resampling needed
+        let filter = build_amerge_filter(48000, 48000, 2, 1);
+        assert_eq!(
+            filter,
+            "[1:a][2:a]amerge=inputs=2,pan=stereo|c0<c0+c2|c1<c1+c2[aout]"
+        );
+        assert!(!filter.contains("aresample"),
+            "should not resample when rates match");
+    }
+
+    #[test]
+    fn amerge_filter_different_sample_rate_must_resample() {
+        // When mic has different sample rate (e.g., 16kHz Jabra), must resample to system rate
+        let filter = build_amerge_filter(48000, 16000, 2, 1);
+        assert!(filter.contains("aresample=48000"),
+            "must resample mic to system sample rate, got: {}", filter);
+        assert!(filter.contains("amerge=inputs=2"),
+            "must still use amerge after resample");
+        assert!(filter.contains("pan=stereo"),
+            "must still pan to stereo");
+    }
 }
