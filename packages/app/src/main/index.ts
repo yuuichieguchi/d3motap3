@@ -1,6 +1,7 @@
 import { app, BrowserWindow, screen, protocol, net } from 'electron'
 import { join } from 'path'
 import { pathToFileURL } from 'url'
+import { stat, open } from 'fs/promises'
 import { registerIpcHandlers } from './ipc-handlers'
 
 const is = {
@@ -104,16 +105,66 @@ export function getMainWindow(): BrowserWindow | null {
   return mainWindow
 }
 
+const MEDIA_MIME: Record<string, string> = {
+  '.mp4': 'video/mp4',
+  '.mov': 'video/quicktime',
+  '.webm': 'video/webm',
+  '.avi': 'video/x-msvideo',
+  '.mkv': 'video/x-matroska',
+}
+
 app.whenReady().then(() => {
-  protocol.handle('media', (request) => {
-    const filePath = decodeURIComponent(new URL(request.url).pathname)
-    const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
-    if (!['.mp4', '.mov', '.webm', '.avi', '.mkv'].includes(ext)) {
-      return new Response('Forbidden', { status: 403 })
+  protocol.handle('media', async (request) => {
+    try {
+      const filePath = decodeURIComponent(new URL(request.url).pathname)
+      const ext = filePath.slice(filePath.lastIndexOf('.')).toLowerCase()
+      const mime = MEDIA_MIME[ext]
+      if (!mime) {
+        return new Response('Forbidden', { status: 403 })
+      }
+
+      const fileSize = (await stat(filePath)).size
+      const range = request.headers.get('Range')
+
+      if (range) {
+        const m = range.match(/bytes=(\d+)-(\d*)/)
+        if (m) {
+          const start = parseInt(m[1], 10)
+          const end = m[2] ? Math.min(parseInt(m[2], 10), fileSize - 1) : fileSize - 1
+          if (start >= fileSize || start > end) {
+            return new Response('Range Not Satisfiable', {
+              status: 416,
+              headers: { 'Content-Range': `bytes */${fileSize}` },
+            })
+          }
+          const len = end - start + 1
+          const buf = Buffer.alloc(len)
+          const fh = await open(filePath, 'r')
+          try {
+            await fh.read(buf, 0, len, start)
+          } finally {
+            await fh.close()
+          }
+          return new Response(buf, {
+            status: 206,
+            headers: {
+              'Content-Range': `bytes ${start}-${end}/${fileSize}`,
+              'Accept-Ranges': 'bytes',
+              'Content-Length': String(len),
+              'Content-Type': mime,
+            },
+          })
+        }
+      }
+
+      return net.fetch(pathToFileURL(filePath).toString())
+    } catch (e: unknown) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        return new Response('Not Found', { status: 404 })
+      }
+      return new Response('Internal Server Error', { status: 500 })
     }
-    return net.fetch(pathToFileURL(filePath).toString(), {
-      headers: request.headers,
-    })
   })
   registerIpcHandlers()
   mainWindow = createWindow()
