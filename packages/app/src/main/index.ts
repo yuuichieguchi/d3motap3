@@ -111,7 +111,9 @@ app.whenReady().then(() => {
     if (!['.mp4', '.mov', '.webm', '.avi', '.mkv'].includes(ext)) {
       return new Response('Forbidden', { status: 403 })
     }
-    return net.fetch(pathToFileURL(filePath).toString())
+    return net.fetch(pathToFileURL(filePath).toString(), {
+      headers: request.headers,
+    })
   })
   registerIpcHandlers()
   mainWindow = createWindow()
