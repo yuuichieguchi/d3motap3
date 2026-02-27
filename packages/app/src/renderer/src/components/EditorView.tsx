@@ -212,6 +212,7 @@ export function EditorView() {
       )}
       {store.exportStatus.status === 'completed' && (
         <div className="result-box">
+          <button className="result-box-close-btn" onClick={() => store.dismissExportStatus()}>×</button>
           <p>Export completed</p>
           {store.exportOutputPath && (
             <>

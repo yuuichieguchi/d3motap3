@@ -56,7 +56,8 @@ interface EditorState {
   startExport: (outputPath: string) => Promise<void>
   startExportPolling: () => void
   stopExportPolling: () => void
-  
+  dismissExportStatus: () => void
+
   // Import
   importFile: () => Promise<void>
   
@@ -410,6 +411,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       set({ exportPollingInterval: null })
     }
   },
+
+  dismissExportStatus: () => set({ exportStatus: { status: 'idle' } }),
 
   importFile: async () => {
     try {
