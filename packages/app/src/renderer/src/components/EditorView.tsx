@@ -169,10 +169,11 @@ export function EditorView() {
     const files = Array.from(e.dataTransfer.files)
     const mediaExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv']
     for (const file of files) {
-      if (!file.path) continue
+      const filePath = window.webUtils?.getPathForFile(file)
+      if (!filePath) continue
       const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'))
       if (mediaExts.includes(ext)) {
-        await store.addClip(file.path)
+        await store.addClip(filePath)
       }
     }
   }, [store])

@@ -6,5 +6,8 @@ export interface D3motap3API {
 declare global {
   interface Window {
     api?: D3motap3API
+    webUtils?: {
+      getPathForFile: (file: File) => string
+    }
   }
 }

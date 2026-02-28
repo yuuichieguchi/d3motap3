@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 const api = {
   // Core bridge - will be expanded with recording controls
@@ -11,3 +11,6 @@ const api = {
 }
 
 contextBridge.exposeInMainWorld('api', api)
+contextBridge.exposeInMainWorld('webUtils', {
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+})
