@@ -84,6 +84,20 @@ pub fn editor_probe(path: String) -> Result<VideoMetadata, String> {
     parse_probe_json(&json)
 }
 
+/// Read and return a `.d3m` project bundle manifest.
+pub fn editor_probe_bundle(bundle_path: String) -> Result<String, String> {
+    let project_path = std::path::Path::new(&bundle_path).join("project.json");
+    let content = std::fs::read_to_string(&project_path)
+        .map_err(|e| format!("Failed to read project.json: {}", e))?;
+
+    // Validate it's valid JSON and a D3mProject
+    let _project: D3mProject = serde_json::from_str(&content)
+        .map_err(|e| format!("Invalid project.json: {}", e))?;
+
+    // Return the raw JSON string (already in camelCase from serialization)
+    Ok(content)
+}
+
 /// Extract [`VideoMetadata`] from ffprobe JSON output.
 fn parse_probe_json(json: &serde_json::Value) -> Result<VideoMetadata, String> {
     // Find the first video stream.

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus } from '@d3motap3/shared'
+import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject } from '@d3motap3/shared'
 
 let nextClipId = 1
 let nextOverlayId = 1
@@ -58,6 +58,10 @@ interface EditorState {
   stopExportPolling: () => void
   dismissExportStatus: () => void
 
+  // Mixer actions
+  setTrackVolume: (clipId: string, trackId: string, volume: number) => void
+  setTrackMuted: (clipId: string, trackId: string, muted: boolean) => void
+
   // Import
   importFile: () => Promise<void>
   
@@ -92,16 +96,47 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   addClip: async (sourcePath) => {
     try {
-      // Probe video metadata
-      const meta = await window.api.invoke('editor:probe', sourcePath) as VideoMetadata
+      const isBundle = sourcePath.endsWith('.d3m')
+      let videoPath: string
+      let meta: VideoMetadata
+      let bundlePath: string | undefined
+      let audioTracks: AudioTrack[] | undefined
+      let mixerSettings: MixerSettings | undefined
+
+      if (isBundle) {
+        // .d3m bundle: read project.json for metadata
+        const projectJson = await window.api.invoke('editor:probe-bundle', sourcePath) as string
+        const project: D3mProject = JSON.parse(projectJson)
+
+        // Find the video file inside the bundle
+        videoPath = `${sourcePath}/${project.video.filename}`
+        meta = {
+          durationMs: project.video.durationMs,
+          width: project.video.width,
+          height: project.video.height,
+          fps: project.video.fps,
+          codec: project.video.codec,
+        }
+        bundlePath = sourcePath
+        audioTracks = project.audioTracks
+        mixerSettings = project.mixer
+      } else {
+        // Regular video file: probe with ffprobe
+        videoPath = sourcePath
+        meta = await window.api.invoke('editor:probe', sourcePath) as VideoMetadata
+      }
+
       const clipId = `clip-${nextClipId++}`
       const newClip: EditorClip = {
         id: clipId,
-        sourcePath,
+        sourcePath: videoPath,
         originalDuration: meta.durationMs,
         trimStart: 0,
         trimEnd: 0,
         order: get().project.clips.length,
+        bundlePath,
+        audioTracks,
+        mixerSettings,
       }
       set((state) => {
         const newMetadata = new Map(state.clipMetadata)
@@ -118,7 +153,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Generate thumbnails in background
       try {
         const thumbWidth = Math.min(Math.round(320 * window.devicePixelRatio), 640)
-        const thumbBuffers = await window.api.invoke('editor:thumbnails', sourcePath, 10, thumbWidth) as ArrayBuffer[]
+        const thumbBuffers = await window.api.invoke('editor:thumbnails', videoPath, 10, thumbWidth) as ArrayBuffer[]
         const thumbUrls = thumbBuffers.map((buf) => {
           const blob = new Blob([buf], { type: 'image/jpeg' })
           return URL.createObjectURL(blob)
@@ -129,7 +164,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           return { clipThumbnails: newThumbs }
         })
       } catch {
-        // Thumbnails are optional, don't fail the clip add
+        // Thumbnails are optional
       }
     } catch (err) {
       console.error('Failed to add clip:', err)
@@ -361,6 +396,32 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           type: c.transition.type,
           duration: c.transition.duration,
         } : undefined,
+        bundle_path: c.bundlePath,
+        audio_tracks: c.audioTracks?.map((t) => ({
+          id: t.id,
+          type: t.type,
+          label: t.label,
+          clips: t.clips.map((ac) => ({
+            id: ac.id,
+            filename: ac.filename,
+            start_ms: ac.startMs,
+            end_ms: ac.endMs,
+            offset_ms: ac.offsetMs,
+          })),
+          format: {
+            sample_rate: t.format.sampleRate,
+            channels: t.format.channels,
+            encoding: t.format.encoding,
+            bytes_per_sample: t.format.bytesPerSample,
+          },
+        })),
+        mixer_settings: c.mixerSettings ? {
+          tracks: c.mixerSettings.tracks.map((t) => ({
+            track_id: t.trackId,
+            volume: t.volume,
+            muted: t.muted,
+          })),
+        } : undefined,
       })),
       text_overlays: project.textOverlays.map((o) => ({
         id: o.id,
@@ -417,7 +478,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   importFile: async () => {
     try {
       const path = await window.api.invoke('dialog:open-file', {
-        filters: [{ name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] }],
+        filters: [
+          { name: 'All Supported', extensions: ['d3m', 'mp4', 'mov', 'webm', 'avi', 'mkv'] },
+          { name: 'd3motap3 Project', extensions: ['d3m'] },
+          { name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] },
+        ],
       }) as string | null
       if (path) {
         await get().addClip(path)
@@ -426,6 +491,42 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       console.error('Failed to import file:', err)
     }
   },
+
+  setTrackVolume: (clipId, trackId, volume) => set((state) => ({
+    project: {
+      ...state.project,
+      clips: state.project.clips.map((c) => {
+        if (c.id !== clipId || !c.mixerSettings) return c
+        return {
+          ...c,
+          mixerSettings: {
+            ...c.mixerSettings,
+            tracks: c.mixerSettings.tracks.map((t) =>
+              t.trackId === trackId ? { ...t, volume: Math.max(0, Math.min(1, volume)) } : t
+            ),
+          },
+        }
+      }),
+    },
+  })),
+
+  setTrackMuted: (clipId, trackId, muted) => set((state) => ({
+    project: {
+      ...state.project,
+      clips: state.project.clips.map((c) => {
+        if (c.id !== clipId || !c.mixerSettings) return c
+        return {
+          ...c,
+          mixerSettings: {
+            ...c.mixerSettings,
+            tracks: c.mixerSettings.tracks.map((t) =>
+              t.trackId === trackId ? { ...t, muted } : t
+            ),
+          },
+        }
+      }),
+    },
+  })),
 
   totalDuration: () => {
     const { clips } = get().project

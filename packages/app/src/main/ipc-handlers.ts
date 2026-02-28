@@ -213,10 +213,18 @@ export function registerIpcHandlers(): void {
     return nativeBridge.editorExportStatus()
   })
 
+  ipcMain.handle('editor:probe-bundle', (_event, bundlePath: string) => {
+    return nativeBridge.editorProbeBundle(bundlePath)
+  })
+
   ipcMain.handle('editor:import', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],
-      filters: [{ name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] }],
+      filters: [
+        { name: 'All Supported', extensions: ['d3m', 'mp4', 'mov', 'webm', 'avi', 'mkv'] },
+        { name: 'd3motap3 Project', extensions: ['d3m'] },
+        { name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] },
+      ],
     })
     if (result.canceled || result.filePaths.length === 0) {
       return null

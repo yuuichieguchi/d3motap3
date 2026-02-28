@@ -639,3 +639,9 @@ pub fn editor_export(project_json: String, output_path: String) -> napi::Result<
 pub fn editor_export_status() -> String {
     editor::editor_export_status()
 }
+
+#[napi]
+pub fn editor_probe_bundle(bundle_path: String) -> napi::Result<String> {
+    editor::editor_probe_bundle(bundle_path)
+        .map_err(|e| napi::Error::from_reason(e))
+}

@@ -38,6 +38,7 @@ import {
   editorThumbnails,
   editorExport,
   editorExportStatus,
+  editorProbeBundle,
   listAudioInputDevices,
 } from '@d3motap3/core'
 import type {
@@ -248,5 +249,8 @@ export const nativeBridge = {
   },
   editorExportStatus(): string {
     return editorExportStatus()
+  },
+  editorProbeBundle(bundlePath: string): string {
+    return editorProbeBundle(bundlePath)
   },
 }
