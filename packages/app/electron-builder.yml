@@ -17,6 +17,11 @@ mac:
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   identity: null
+  fileAssociations:
+    - ext: d3m
+      name: d3motap3 Project
+      role: Editor
+      isPackage: true
 dmg:
   artifactName: "${productName}-${version}-arm64.${ext}"
 afterPack: scripts/afterPack.cjs

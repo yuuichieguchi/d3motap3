@@ -167,8 +167,7 @@ export const nativeBridge = {
       outputDir = app.getPath('videos')
     }
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const ext = config.format || 'mp4'
-    const outputPath = join(outputDir, `d3motap3-${timestamp}.${ext}`)
+    const outputPath = join(outputDir, `d3motap3-${timestamp}.d3m`)
 
     startRecordingV2(
       config.outputWidth,

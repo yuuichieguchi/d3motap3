@@ -100,6 +100,7 @@ export function closeRegionSelector(): void {
 }
 
 let mainWindow: BrowserWindow | null = null
+let pendingOpenFile: string | null = null
 
 export function getMainWindow(): BrowserWindow | null {
   return mainWindow
@@ -169,6 +170,13 @@ app.whenReady().then(() => {
   registerIpcHandlers()
   mainWindow = createWindow()
 
+  if (pendingOpenFile) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow!.webContents.send('open-bundle', pendingOpenFile!)
+      pendingOpenFile = null
+    })
+  }
+
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
       mainWindow = createWindow()
@@ -179,5 +187,16 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit()
+  }
+})
+
+app.on('open-file', (event, filePath) => {
+  event.preventDefault()
+  if (filePath.endsWith('.d3m')) {
+    if (mainWindow) {
+      mainWindow.webContents.send('open-bundle', filePath)
+    } else {
+      pendingOpenFile = filePath
+    }
   }
 })

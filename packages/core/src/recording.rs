@@ -283,6 +283,9 @@ struct RecordingHandleV2 {
     audio_mic_channel_count: u32,
     hardware_sample_rate: Option<u32>,
     final_output_path: PathBuf,
+    output_width: u32,
+    output_height: u32,
+    fps: u32,
 }
 
 pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> {
@@ -353,18 +356,21 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
     };
 
     let final_output_path = PathBuf::from(&config.output_path);
-    let video_output_path = if audio_enabled {
-        // Video goes to temp file; post-mux will produce the final output
+    // final_output_path is now .d3m (bundle directory), so we must use a
+    // proper video extension for the temp file that FFmpeg will write to.
+    let video_ext = match format {
+        OutputFormat::WebM => "webm",
+        OutputFormat::Gif => "gif",
+        _ => "mp4",
+    };
+    let video_output_path = {
         let mut temp = final_output_path.clone();
         let stem = temp.file_stem().unwrap_or_default().to_os_string();
-        let ext = temp.extension().unwrap_or_default().to_os_string();
         let mut new_name = stem;
         new_name.push(".temp_video.");
-        new_name.push(&ext);
+        new_name.push(video_ext);
         temp.set_file_name(new_name);
         temp.to_string_lossy().into_owned()
-    } else {
-        config.output_path.clone()
     };
 
     let width = config.output_width;
@@ -530,9 +536,94 @@ pub fn start_recording_v2_impl(config: RecordingConfigV2) -> Result<(), String> 
         audio_mic_channel_count: audio_config.effective_mic_channels(),
         hardware_sample_rate,
         final_output_path,
+        output_width: config.output_width,
+        output_height: config.output_height,
+        fps: config.fps,
     });
 
     Ok(())
+}
+
+/// Create a `.d3m` project bundle from the recorded video and audio.
+fn create_bundle(
+    video_temp_path: &std::path::Path,
+    audio_temp: Option<crate::audio::system::AudioTempFiles>,
+    final_output_path: &std::path::Path, // This is now the .d3m directory
+    video_duration_ms: u64,
+    video_width: u32,
+    video_height: u32,
+    video_fps: u32,
+    video_format: &str,
+    video_ext: &str,
+) -> Result<String, String> {
+    use crate::editor::{D3mProject, D3mVideo, MixerSettings, TrackMixerSetting};
+
+    // Create bundle directory
+    std::fs::create_dir_all(final_output_path)
+        .map_err(|e| format!("Failed to create bundle directory: {}", e))?;
+
+    // Move video into bundle
+    let video_filename = format!("video.{}", video_ext);
+    let video_dest = final_output_path.join(&video_filename);
+    std::fs::rename(video_temp_path, &video_dest)
+        .map_err(|e| format!("Failed to move video to bundle: {}", e))?;
+
+    // Move audio files into bundle (if any)
+    let audio_tracks = if let Some(audio_temp) = audio_temp {
+        if audio_temp.has_audio() {
+            let tracks_dir = final_output_path.join("tracks");
+            std::fs::create_dir_all(&tracks_dir)
+                .map_err(|e| format!("Failed to create tracks directory: {}", e))?;
+            audio_temp.move_to_bundle(&tracks_dir)
+        } else {
+            audio_temp.cleanup();
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    // Build mixer settings with default volumes
+    let mixer = MixerSettings {
+        tracks: audio_tracks
+            .iter()
+            .map(|t| TrackMixerSetting {
+                track_id: t.id.clone(),
+                volume: 1.0,
+                muted: false,
+            })
+            .collect(),
+    };
+
+    // Determine video codec based on format
+    let codec = match video_format {
+        "webm" => "vp9".to_string(),
+        _ => "h264".to_string(),
+    };
+
+    // Build project manifest
+    let project = D3mProject {
+        version: 1,
+        created_at: chrono::Utc::now().to_rfc3339(),
+        video: D3mVideo {
+            filename: video_filename,
+            duration_ms: video_duration_ms as f64,
+            width: video_width,
+            height: video_height,
+            fps: video_fps as f64,
+            codec,
+        },
+        audio_tracks,
+        mixer,
+    };
+
+    // Write project.json
+    let project_json = serde_json::to_string_pretty(&project)
+        .map_err(|e| format!("Failed to serialize project.json: {}", e))?;
+    std::fs::write(final_output_path.join("project.json"), project_json)
+        .map_err(|e| format!("Failed to write project.json: {}", e))?;
+
+    Ok(final_output_path.to_string_lossy().into_owned())
 }
 
 pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
@@ -582,58 +673,21 @@ pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {
     // Now propagate encoder errors
     let mut result = encoder_result?;
 
-    // Post-mux: combine video and audio if audio was captured
-    if let Some(audio_temp) = audio_temp {
-        if audio_temp.has_audio() {
-            let video_temp_path = std::path::Path::new(&result.output_path);
-            let format = match result.format.as_str() {
-                "mp4" => crate::encoder::OutputFormat::Mp4,
-                "webm" => crate::encoder::OutputFormat::WebM,
-                _ => crate::encoder::OutputFormat::Mp4,
-            };
+    // Create .d3m bundle instead of muxing
+    let video_temp_path = std::path::Path::new(&result.output_path);
+    let bundle_path = create_bundle(
+        video_temp_path,
+        audio_temp,
+        &handle.final_output_path,
+        result.duration_ms,
+        handle.output_width,
+        handle.output_height,
+        handle.fps,
+        &result.format,
+        &result.format,
+    )?;
 
-            // Use format_desc rate directly — SCK delivers at this rate
-            // regardless of with_sample_rate() config. The actual pitch issue
-            // was caused by non-interleaved data (now handled in system.rs).
-            let system_sr = audio_temp.system_sample_rate.unwrap_or(48_000);
-            let mic_sr = audio_temp.mic_sample_rate.unwrap_or(48_000);
-
-            // Use detected channel counts when available, fall back to config
-            let system_ch = audio_temp
-                .system_channel_count
-                .unwrap_or(handle.audio_channel_count);
-            let mic_ch = audio_temp
-                .mic_channel_count
-                .unwrap_or(handle.audio_mic_channel_count);
-
-            eprintln!(
-                "[audio] mux params: system_sr={} mic_sr={} system_ch={} mic_ch={}",
-                system_sr, mic_sr, system_ch, mic_ch,
-            );
-
-            let mux_result = crate::encoder::mux_audio_video(
-                video_temp_path,
-                audio_temp.system_audio_path_if_nonempty().map(|p| p.as_path()),
-                audio_temp.mic_audio_path_if_nonempty().map(|p| p.as_path()),
-                system_sr,
-                mic_sr,
-                system_ch,
-                mic_ch,
-                format,
-                &handle.final_output_path,
-            );
-
-            // Always clean up temp files
-            let _ = std::fs::remove_file(video_temp_path);
-            audio_temp.cleanup();
-
-            // Propagate mux error after cleanup
-            mux_result?;
-
-            // Update result to point to the final output
-            result.output_path = handle.final_output_path.to_string_lossy().into_owned();
-        }
-    }
+    result.output_path = bundle_path;
 
     Ok(result)
 }

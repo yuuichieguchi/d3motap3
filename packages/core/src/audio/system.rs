@@ -64,6 +64,103 @@ impl AudioTempFiles {
             let _ = std::fs::remove_file(p);
         }
     }
+
+    /// Move PCM files into the bundle's tracks directory and return AudioTrack metadata.
+    /// Returns a Vec of AudioTrack for each non-empty audio file.
+    pub fn move_to_bundle(&self, tracks_dir: &Path) -> Vec<crate::editor::AudioTrack> {
+        use uuid::Uuid;
+        let mut tracks = Vec::new();
+
+        if let Some(src) = self.system_audio_path_if_nonempty() {
+            let dest = tracks_dir.join("system-audio.pcm");
+            let moved = std::fs::rename(src, &dest)
+                .or_else(|_| {
+                    // Fallback: copy + remove (for cross-filesystem moves)
+                    std::fs::copy(src, &dest)
+                        .and_then(|_| std::fs::remove_file(src))
+                });
+            if moved.is_ok() {
+                let sr = self.system_sample_rate.unwrap_or(48000);
+                let ch = self.system_channel_count.unwrap_or(2);
+                let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+                let bytes_per_sample: u64 = 4;
+                let duration_ms = if sr > 0 && ch > 0 {
+                    (file_size as f64 / (sr as f64 * ch as f64 * bytes_per_sample as f64)) * 1000.0
+                } else {
+                    0.0
+                };
+
+                tracks.push(crate::editor::AudioTrack {
+                    id: "system".to_string(),
+                    track_type: "system".to_string(),
+                    label: "System Audio".to_string(),
+                    clips: vec![crate::editor::AudioClip {
+                        id: Uuid::new_v4().to_string(),
+                        filename: "system-audio.pcm".to_string(),
+                        start_ms: 0.0,
+                        end_ms: duration_ms,
+                        offset_ms: 0.0,
+                    }],
+                    format: crate::editor::AudioFormat {
+                        sample_rate: sr,
+                        channels: ch,
+                        encoding: "f32le".to_string(),
+                        bytes_per_sample: 4,
+                    },
+                });
+            }
+        }
+
+        if let Some(src) = self.mic_audio_path_if_nonempty() {
+            let dest = tracks_dir.join("mic-audio.pcm");
+            let moved = std::fs::rename(src, &dest)
+                .or_else(|_| {
+                    // Fallback: copy + remove (for cross-filesystem moves)
+                    std::fs::copy(src, &dest)
+                        .and_then(|_| std::fs::remove_file(src))
+                });
+            if moved.is_ok() {
+                let sr = self.mic_sample_rate.unwrap_or(48000);
+                let ch = self.mic_channel_count.unwrap_or(1);
+                let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
+                let bytes_per_sample: u64 = 4;
+                let duration_ms = if sr > 0 && ch > 0 {
+                    (file_size as f64 / (sr as f64 * ch as f64 * bytes_per_sample as f64)) * 1000.0
+                } else {
+                    0.0
+                };
+
+                tracks.push(crate::editor::AudioTrack {
+                    id: "mic".to_string(),
+                    track_type: "mic".to_string(),
+                    label: "Microphone".to_string(),
+                    clips: vec![crate::editor::AudioClip {
+                        id: Uuid::new_v4().to_string(),
+                        filename: "mic-audio.pcm".to_string(),
+                        start_ms: 0.0,
+                        end_ms: duration_ms,
+                        offset_ms: 0.0,
+                    }],
+                    format: crate::editor::AudioFormat {
+                        sample_rate: sr,
+                        channels: ch,
+                        encoding: "f32le".to_string(),
+                        bytes_per_sample: 4,
+                    },
+                });
+            }
+        }
+
+        // Clean up any remaining unmoved files
+        if let Some(ref p) = self.system_audio_path {
+            if p.exists() { let _ = std::fs::remove_file(p); }
+        }
+        if let Some(ref p) = self.mic_audio_path {
+            if p.exists() { let _ = std::fs::remove_file(p); }
+        }
+
+        tracks
+    }
 }
 
 // ---------------------------------------------------------------------------
