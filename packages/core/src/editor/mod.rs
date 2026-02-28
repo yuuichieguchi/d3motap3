@@ -640,6 +640,116 @@ pub fn build_filter_complex(project: &EditorProject, clip_has_audio: &[bool]) ->
 }
 
 // ---------------------------------------------------------------------------
+// Bundle audio filter builder
+// ---------------------------------------------------------------------------
+
+/// Build FFmpeg audio filter for a bundle clip's audio tracks.
+/// Returns `(filter_string, output_label, extra_inputs)` where `extra_inputs` are
+/// the FFmpeg input arguments for the PCM files.
+fn build_bundle_audio_filter(
+    clip: &EditorClip,
+    input_index_start: usize,
+    trim_start_s: f64,
+    trim_end_s: f64,
+    _clip_duration_s: f64,
+) -> Option<(String, String, Vec<String>)> {
+    let bundle_path = clip.bundle_path.as_ref()?;
+    let audio_tracks = clip.audio_tracks.as_ref()?;
+    let mixer = clip.mixer_settings.as_ref()?;
+
+    if audio_tracks.is_empty() {
+        return None;
+    }
+
+    let mut inputs = Vec::new();
+    let mut filters = Vec::new();
+    let mut mix_labels = Vec::new();
+    let mut current_input = input_index_start;
+
+    for track in audio_tracks {
+        if track.clips.is_empty() {
+            continue;
+        }
+
+        let setting = mixer.tracks.iter().find(|t| t.track_id == track.id);
+        let is_muted = setting.map_or(false, |s| s.muted);
+        let volume = setting.map_or(1.0, |s| s.volume);
+
+        if is_muted {
+            continue;
+        }
+
+        // For each clip in the track (supports punch-in segments)
+        for audio_clip in &track.clips {
+            let pcm_path = format!("{}/tracks/{}", bundle_path, audio_clip.filename);
+            inputs.extend_from_slice(&[
+                "-f".to_string(),
+                "f32le".to_string(),
+                "-ar".to_string(),
+                track.format.sample_rate.to_string(),
+                "-ac".to_string(),
+                track.format.channels.to_string(),
+                "-i".to_string(),
+                pcm_path,
+            ]);
+
+            let label = format!("ba{}", current_input);
+
+            // Apply trim and volume.
+            // The audio_clip.offset_ms is relative to the recording start,
+            // so the trim point in the audio file is trim_start_s + offset.
+            let audio_start = trim_start_s + (audio_clip.offset_ms / 1000.0);
+            let audio_end = (clip.original_duration / 1000.0) - trim_end_s;
+
+            let mut filter_parts = vec![format!(
+                "[{}:a]atrim=start={:.3}:end={:.3}",
+                current_input, audio_start, audio_end
+            )];
+            filter_parts.push("asetpts=PTS-STARTPTS".to_string());
+
+            if (volume - 1.0).abs() > 0.001 {
+                filter_parts.push(format!("volume={:.3}", volume));
+            }
+
+            // Convert mono to stereo if needed.
+            if track.format.channels == 1 {
+                filter_parts.push("pan=stereo|c0=c0|c1=c0".to_string());
+            }
+
+            filters.push(format!("{}[{}]", filter_parts.join(","), label));
+            mix_labels.push(format!("[{}]", label));
+            current_input += 1;
+        }
+    }
+
+    if mix_labels.is_empty() {
+        return None;
+    }
+
+    let output_label = format!("ba_mix{}", input_index_start);
+
+    if mix_labels.len() == 1 {
+        // Single track – just rename the label.
+        let last_filter = filters.last_mut().expect("filters should not be empty");
+        let old_label = mix_labels[0].trim_matches(|c| c == '[' || c == ']');
+        *last_filter = last_filter.replace(
+            &format!("[{}]", old_label),
+            &format!("[{}]", output_label),
+        );
+    } else {
+        // Multiple tracks – mix them together.
+        filters.push(format!(
+            "{}amix=inputs={}:duration=longest[{}]",
+            mix_labels.join(""),
+            mix_labels.len(),
+            output_label,
+        ));
+    }
+
+    Some((filters.join(";"), output_label, inputs))
+}
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
@@ -693,27 +803,88 @@ fn run_export(
 ) -> Result<(), String> {
     let mut clips = project.clips.iter().collect::<Vec<_>>();
     clips.sort_by_key(|c| c.order);
+
+    // Determine which clips have embedded audio.
+    // For bundle clips, the video.mp4 is video-only; audio comes from
+    // separate PCM files, so mark them as having no embedded audio.
     let clip_has_audio: Vec<bool> = clips
         .iter()
-        .map(|c| has_audio_stream(&c.source_path))
+        .map(|c| {
+            if c.bundle_path.is_some() {
+                // Bundle video.mp4 is video-only; audio is in separate PCM files.
+                false
+            } else {
+                has_audio_stream(&c.source_path)
+            }
+        })
         .collect();
+
     let fc = build_filter_complex(project, &clip_has_audio)?;
+
+    // Build bundle audio filters for clips that have separate audio tracks.
+    let base_input_count = clips.len();
+    let mut bundle_audio_inputs: Vec<String> = Vec::new();
+    let mut bundle_audio_filter = String::new();
+    let mut bundle_audio_label: Option<String> = None;
+
+    for clip in &clips {
+        if clip.bundle_path.is_some() && clip.audio_tracks.is_some() {
+            let trim_start_s = clip.trim_start / 1000.0;
+            let trim_end_s = clip.trim_end / 1000.0;
+            let clip_duration_s =
+                (clip.original_duration - clip.trim_start - clip.trim_end) / 1000.0;
+
+            // Calculate the input index start: base inputs + how many PCM
+            // inputs we have already added (each PCM input has 8 args).
+            let pcm_input_index = base_input_count + bundle_audio_inputs.len() / 8;
+
+            if let Some((filter, label, inputs)) = build_bundle_audio_filter(
+                clip,
+                pcm_input_index,
+                trim_start_s,
+                trim_end_s,
+                clip_duration_s,
+            ) {
+                bundle_audio_inputs.extend(inputs);
+                bundle_audio_filter = filter;
+                bundle_audio_label = Some(label);
+            }
+        }
+    }
+
+    // Compose the final filter_complex, appending bundle audio if present.
+    let final_filter = if !bundle_audio_filter.is_empty() {
+        format!("{};{}", fc.filter_complex, bundle_audio_filter)
+    } else {
+        fc.filter_complex.clone()
+    };
+
+    // Determine the audio output label: prefer bundle audio over embedded.
+    let audio_map_label: Option<String> = bundle_audio_label
+        .as_ref()
+        .map(|l| format!("[{}]", l))
+        .or_else(|| fc.audio_output_label.clone());
 
     let mut args: Vec<String> = Vec::new();
     args.extend(["-y".to_string(), "-hide_banner".to_string()]);
+
+    // Add video inputs (one per clip).
     for clip in &clips {
         args.extend(["-i".to_string(), clip.source_path.clone()]);
     }
 
+    // Add bundle audio PCM inputs.
+    args.extend(bundle_audio_inputs);
+
     // filter_complex.
-    args.extend(["-filter_complex".to_string(), fc.filter_complex]);
+    args.extend(["-filter_complex".to_string(), final_filter]);
 
     // Map the final video output.
     args.extend(["-map".to_string(), fc.output_label]);
 
     // Map audio output if present.
-    if let Some(ref audio_label) = fc.audio_output_label {
-        args.extend(["-map".to_string(), audio_label.clone()]);
+    if let Some(ref label) = audio_map_label {
+        args.extend(["-map".to_string(), label.clone()]);
     }
 
     // Output codecs.
@@ -723,7 +894,7 @@ fn run_export(
     ]);
 
     // Audio codec (only when audio is present).
-    if fc.audio_output_label.is_some() {
+    if audio_map_label.is_some() {
         args.extend([
             "-c:a".to_string(), "aac".to_string(),
             "-b:a".to_string(), "192k".to_string(),
