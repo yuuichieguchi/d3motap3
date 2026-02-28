@@ -2,9 +2,7 @@ import { useState, useRef, useCallback, useEffect } from 'react'
 import { useEditorStore, consumeUserSeek } from '../store/editor'
 import { useAudioPlayback } from '../hooks/useAudioPlayback'
 import { Timeline } from './Timeline'
-import { Mixer } from './Mixer'
 import { TextOverlayEditor } from './TextOverlayEditor'
-import { PunchInControls } from './PunchInControls'
 
 export function EditorView() {
   const store = useEditorStore()
@@ -183,6 +181,49 @@ export function EditorView() {
     return () => window.removeEventListener('keydown', handler)
   }, [deleteSelected])
 
+  // Mixer window state sync
+  useEffect(() => {
+    const sendMixerState = () => {
+      const s = useEditorStore.getState()
+      const clip = s.project.clips.find((c) => c.bundlePath && c.mixerSettings)
+      if (clip && clip.mixerSettings && clip.audioTracks) {
+        window.api.invoke('mixer:respond-state', {
+          clipId: clip.id,
+          tracks: clip.audioTracks.map((t) => ({ id: t.id, label: t.label })),
+          settings: clip.mixerSettings.tracks,
+        }).catch(() => {})
+      } else {
+        window.api.invoke('mixer:respond-state', null).catch(() => {})
+      }
+    }
+
+    const unsubGetState = window.api.on('mixer:get-state', () => {
+      sendMixerState()
+    })
+
+    const unsubUpdate = window.api.on('mixer:update', (...args: unknown[]) => {
+      const data = args[0] as { type: string; clipId: string; trackId: string; value: number | boolean }
+      const s = useEditorStore.getState()
+      if (data.type === 'volume') {
+        s.setTrackVolume(data.clipId, data.trackId, data.value as number)
+      } else if (data.type === 'muted') {
+        s.setTrackMuted(data.clipId, data.trackId, data.value as boolean)
+      }
+    })
+
+    const unsubStore = useEditorStore.subscribe((state, prevState) => {
+      if (state.project.clips !== prevState.project.clips) {
+        sendMixerState()
+      }
+    })
+
+    return () => {
+      unsubGetState()
+      unsubUpdate()
+      unsubStore()
+    }
+  }, [])
+
   const handlePlayPause = useCallback(() => {
     store.setPlaying(!store.isPlaying)
   }, [store])
@@ -193,10 +234,6 @@ export function EditorView() {
     const start = store.currentTimeMs
     const end = Math.min(start + 3000, totalDuration) // Default 3s overlay
     store.addTextOverlay('Text', start, end)
-  }, [store])
-
-  const handleSplit = useCallback(() => {
-    store.splitAtPlayhead()
   }, [store])
 
   const handleExport = useCallback(async () => {
@@ -296,8 +333,9 @@ export function EditorView() {
       {/* Toolbar */}
       <div className="editor-toolbar">
         <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
-        <button onClick={handleSplit} disabled={!store.canSplit()}>Split</button>
-        <PunchInControls />
+        {isBundleClip && (
+          <button className="editor-mixer-btn" onClick={() => window.api.invoke('mixer:open').catch(() => {})}>Mixer</button>
+        )}
       </div>
 
       {/* Playback controls */}
@@ -321,9 +359,6 @@ export function EditorView() {
 
       {/* Timeline */}
       <Timeline />
-
-      {/* Mixer */}
-      <Mixer />
 
       {/* Text overlay editor */}
       <TextOverlayEditor />

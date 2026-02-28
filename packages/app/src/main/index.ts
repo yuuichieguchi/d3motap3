@@ -106,6 +106,44 @@ export function closeRegionSelector(): void {
   }
 }
 
+let mixerWindow: BrowserWindow | null = null
+
+export function openMixerWindow(): void {
+  if (mixerWindow) {
+    mixerWindow.focus()
+    return
+  }
+
+  mixerWindow = new BrowserWindow({
+    width: 400,
+    height: 500,
+    minWidth: 300,
+    minHeight: 300,
+    webPreferences: {
+      preload: join(__dirname, '../preload/index.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false
+    },
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 12, y: 12 }
+  })
+
+  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
+    mixerWindow.loadURL(`${process.env['ELECTRON_RENDERER_URL']}/mixer.html`)
+  } else {
+    mixerWindow.loadFile(join(__dirname, '../renderer/mixer.html'))
+  }
+
+  mixerWindow.on('closed', () => {
+    mixerWindow = null
+  })
+}
+
+export function getMixerWindow(): BrowserWindow | null {
+  return mixerWindow
+}
+
 let mainWindow: BrowserWindow | null = null
 let pendingOpenFile: string | null = null
 

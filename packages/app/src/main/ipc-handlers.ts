@@ -299,4 +299,42 @@ export function registerIpcHandlers(): void {
     const { closeRegionSelector } = require('./index') as typeof import('./index')
     closeRegionSelector()
   })
+
+  // Mixer window
+  ipcMain.handle('mixer:open', () => {
+    const { openMixerWindow } = require('./index') as typeof import('./index')
+    openMixerWindow()
+  })
+
+  ipcMain.handle('mixer:request-state', () => {
+    const { getMainWindow } = require('./index') as typeof import('./index')
+    const mainWin = getMainWindow()
+    if (mainWin) {
+      mainWin.webContents.send('mixer:get-state')
+    }
+  })
+
+  ipcMain.handle('mixer:set-volume', (_event, clipId: string, trackId: string, volume: number) => {
+    const { getMainWindow } = require('./index') as typeof import('./index')
+    const mainWin = getMainWindow()
+    if (mainWin) {
+      mainWin.webContents.send('mixer:update', { type: 'volume', clipId, trackId, value: volume })
+    }
+  })
+
+  ipcMain.handle('mixer:set-muted', (_event, clipId: string, trackId: string, muted: boolean) => {
+    const { getMainWindow } = require('./index') as typeof import('./index')
+    const mainWin = getMainWindow()
+    if (mainWin) {
+      mainWin.webContents.send('mixer:update', { type: 'muted', clipId, trackId, value: muted })
+    }
+  })
+
+  ipcMain.handle('mixer:respond-state', (_event, state: unknown) => {
+    const { getMixerWindow } = require('./index') as typeof import('./index')
+    const mixerWin = getMixerWindow()
+    if (mixerWin) {
+      mixerWin.webContents.send('mixer:state-update', state)
+    }
+  })
 }

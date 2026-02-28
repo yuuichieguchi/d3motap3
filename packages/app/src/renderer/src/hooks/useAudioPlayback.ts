@@ -81,7 +81,9 @@ export function useAudioPlayback({
     })
 
     Promise.all(loadPromises).then(() => {
-      setIsLoaded(true)
+      if (trackStatesRef.current.size > 0) {
+        setIsLoaded(true)
+      }
     })
 
     return () => {
@@ -151,17 +153,26 @@ export function useAudioPlayback({
     const ctx = audioContextRef.current
     if (!ctx) return
 
+    let cancelled = false
+
     if (isPlaying) {
-      if (ctx.state === 'suspended') {
-        ctx.resume()
-      }
-      const offsetSeconds = currentTimeMs / 1000
-      startAudioPlayback(offsetSeconds)
+      ;(async () => {
+        if (ctx.state === 'suspended') {
+          await ctx.resume()
+        }
+        if (cancelled) return
+        const offsetSeconds = currentTimeMs / 1000
+        startAudioPlayback(offsetSeconds)
+      })()
     } else {
       stopAudioPlayback()
       if (ctx.state === 'running') {
         ctx.suspend()
       }
+    }
+
+    return () => {
+      cancelled = true
     }
   }, [isPlaying, bundlePath, isLoaded, startAudioPlayback, stopAudioPlayback])
 

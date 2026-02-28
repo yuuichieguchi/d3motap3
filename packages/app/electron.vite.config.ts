@@ -30,7 +30,8 @@ export default defineConfig({
       rollupOptions: {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
-          regionSelector: resolve(__dirname, 'src/renderer/region-selector.html')
+          regionSelector: resolve(__dirname, 'src/renderer/region-selector.html'),
+          mixer: resolve(__dirname, 'src/renderer/mixer.html')
         }
       }
     },
