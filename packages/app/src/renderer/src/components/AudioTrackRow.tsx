@@ -6,9 +6,10 @@ interface AudioTrackRowProps {
   track: IndependentAudioTrack
   totalDuration: number
   onContextMenu: (e: React.MouseEvent, clipId: string, trackId: string) => void
+  onTrackContextMenu?: (e: React.MouseEvent, trackId: string) => void
 }
 
-export function AudioTrackRow({ track, totalDuration, onContextMenu }: AudioTrackRowProps) {
+export function AudioTrackRow({ track, totalDuration, onContextMenu, onTrackContextMenu }: AudioTrackRowProps) {
   const store = useEditorStore()
   const rowRef = useRef<HTMLDivElement>(null)
 
@@ -118,7 +119,18 @@ export function AudioTrackRow({ track, totalDuration, onContextMenu }: AudioTrac
         <span className="audio-track-icon">{track.muted ? '\u{1F507}' : '\u{1F50A}'}</span>
         <span>{track.label}</span>
       </div>
-      <div className="timeline-row-content" ref={rowRef} style={{ position: 'relative' }}>
+      <div
+        className="timeline-row-content"
+        ref={rowRef}
+        style={{ position: 'relative' }}
+        onContextMenu={(e) => {
+          // Only fire if click is NOT on an audio clip
+          if ((e.target as HTMLElement).closest('.independent-audio-clip')) return
+          e.preventDefault()
+          e.stopPropagation()
+          onTrackContextMenu?.(e, track.id)
+        }}
+      >
         {track.clips.map((clip) => {
           const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
           const left = (clip.timelineStartMs / totalDuration) * 100

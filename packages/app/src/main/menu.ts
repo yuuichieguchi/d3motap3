@@ -99,6 +99,38 @@ export function setupApplicationMenu(getMainWindow: () => BrowserWindow | null):
         { role: 'selectAll' }
       ]
     },
+    {
+      label: 'Track',
+      submenu: [
+        {
+          label: 'Add Audio Track',
+          accelerator: 'CmdOrCtrl+Shift+A',
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:add-empty-audio-track')
+          }
+        },
+        {
+          label: 'Import Audio File...',
+          accelerator: 'CmdOrCtrl+Shift+U',
+          click: async (): Promise<void> => {
+            const win = getMainWindow()
+            if (!win) return
+
+            const result = await dialog.showOpenDialog(win, {
+              properties: ['openFile'],
+              filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }]
+            })
+
+            if (result.canceled || result.filePaths.length === 0) return
+
+            const filePath = result.filePaths[0]
+            const fileName = filePath.split('/').pop() ?? 'audio'
+            win.webContents.send('menu:import-audio', filePath, fileName)
+          }
+        }
+      ]
+    },
     { role: 'windowMenu' }
   ]
 

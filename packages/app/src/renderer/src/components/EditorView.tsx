@@ -355,14 +355,11 @@ export function EditorView() {
       if (videoExts.includes(ext)) {
         await store.addClip(filePath)
       } else if (audioExts.includes(ext)) {
-        // Add to first audio track, or create one
-        let trackId: string
-        if (store.project.independentAudioTracks.length === 0) {
-          store.addAudioTrack('Audio 1')
-          trackId = useEditorStore.getState().project.independentAudioTracks[0].id
-        } else {
-          trackId = store.project.independentAudioTracks[0].id
-        }
+        // Create a new track per file, using file name (no extension) as label
+        const baseName = file.name.replace(/\.[^.]+$/, '')
+        store.addAudioTrack(baseName)
+        const tracks = useEditorStore.getState().project.independentAudioTracks
+        const trackId = tracks[tracks.length - 1].id
         await useEditorStore.getState().addAudioClip(trackId, filePath)
       }
     }

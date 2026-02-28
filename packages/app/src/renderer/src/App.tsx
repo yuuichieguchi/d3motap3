@@ -98,6 +98,37 @@ export function App() {
     return unsubscribe
   }, [])
 
+  // Handle add-empty-audio-track from native menu
+  useEffect(() => {
+    if (!window.api?.on) return
+    const unsubscribe = window.api.on('menu:add-empty-audio-track', () => {
+      const s = useEditorStore.getState()
+      const trackCount = s.project.independentAudioTracks.length
+      s.addAudioTrack(`Audio ${trackCount + 1}`)
+      setCurrentView('editor')
+    })
+    return unsubscribe
+  }, [])
+
+  // Handle import-audio from native menu
+  useEffect(() => {
+    if (!window.api?.on) return
+    const unsubscribe = window.api.on('menu:import-audio', (...args: unknown[]) => {
+      const filePath = args[0] as string
+      const fileName = args[1] as string
+      const baseName = fileName.replace(/\.[^.]+$/, '')
+      editorStore.addAudioTrack(baseName)
+      const tracks = useEditorStore.getState().project.independentAudioTracks
+      const trackId = tracks[tracks.length - 1].id
+      useEditorStore.getState().addAudioClip(trackId, filePath).then(() => {
+        setCurrentView('editor')
+      }).catch((err) => {
+        console.error('Failed to import audio:', err)
+      })
+    })
+    return unsubscribe
+  }, [])
+
   const handleStartRecording = useCallback(async () => {
     try {
       store.setError(null)

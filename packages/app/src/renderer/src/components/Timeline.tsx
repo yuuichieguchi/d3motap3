@@ -13,7 +13,7 @@ export function Timeline() {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    type: "clip" | "overlay" | "audio-clip";
+    type: "clip" | "overlay" | "audio-clip" | "timeline-empty" | "audio-track-empty";
     id: string;
     trackId?: string;
     splitEnabled: boolean;
@@ -112,6 +112,36 @@ export function Timeline() {
     [],
   )
 
+  const handleTrackEmptyContextMenu = useCallback(
+    (e: React.MouseEvent, trackId: string) => {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        type: 'audio-track-empty',
+        id: trackId,
+        splitEnabled: false,
+      })
+    },
+    [],
+  )
+
+  const handleTimelineContextMenu = useCallback(
+    (e: React.MouseEvent) => {
+      // Don't fire if the right-click was on a clip, overlay, or audio element
+      const target = e.target as HTMLElement
+      if (target.closest('.timeline-clip, .timeline-overlay, .independent-audio-clip, .audio-track-bar, .timeline-context-menu')) return
+      e.preventDefault()
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        type: 'timeline-empty',
+        id: '',
+        splitEnabled: false,
+      })
+    },
+    [],
+  )
+
   // Seek to position based on clientX relative to track
   const handleTrackSeek = useCallback((clientX: number) => {
     if (!trackRef.current) return;
@@ -177,7 +207,7 @@ export function Timeline() {
     totalDuration > 0 ? (store.currentTimeMs / totalDuration) * 100 : 0;
 
   return (
-    <div className="timeline">
+    <div className="timeline" onContextMenu={handleTimelineContextMenu}>
       {/* Clip track */}
       <div className="timeline-track clip-track" ref={trackRef}>
         {/* Playhead */}
@@ -306,18 +336,10 @@ export function Timeline() {
           track={track}
           totalDuration={totalDuration}
           onContextMenu={handleAudioContextMenu}
+          onTrackContextMenu={handleTrackEmptyContextMenu}
         />
       ))}
 
-      {/* Add Audio Track button */}
-      <div className="timeline-add-audio-track">
-        <button
-          className="add-audio-track-btn"
-          onClick={() => store.addAudioTrack(`Audio ${store.project.independentAudioTracks.length + 1}`)}
-        >
-          + Audio Track
-        </button>
-      </div>
 
       {/* Text overlay track */}
       {overlays.length > 0 && (
@@ -365,7 +387,8 @@ export function Timeline() {
               left: Math.min(contextMenu.x, window.innerWidth - 200),
               top: Math.min(contextMenu.y, window.innerHeight - (
                 contextMenu.type === "audio-clip" ? 300 :
-                contextMenu.type === "clip" ? 230 : 50
+                contextMenu.type === "clip" ? 230 :
+                contextMenu.type === "timeline-empty" || contextMenu.type === "audio-track-empty" ? 100 : 50
               )),
             }}
             onMouseDown={(e) => e.stopPropagation()}
@@ -525,6 +548,66 @@ export function Timeline() {
                       : "Delete"}
                   </span>
                   <span className="context-menu-shortcut">⌫</span>
+                </button>
+              </>
+            ) : contextMenu.type === "timeline-empty" ? (
+              <>
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={async () => {
+                    setContextMenu(null);
+                    const filePath = await window.api.invoke('dialog:open-file', {
+                      filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }],
+                    }) as string | null;
+                    if (filePath) {
+                      const fileName = filePath.split('/').pop() ?? 'audio'
+                      const baseName = fileName.replace(/\.[^.]+$/, '')
+                      store.addAudioTrack(baseName);
+                      const tracks = useEditorStore.getState().project.independentAudioTracks;
+                      const trackId = tracks[tracks.length - 1].id;
+                      await useEditorStore.getState().addAudioClip(trackId, filePath);
+                    }
+                  }}
+                >
+                  <span>Import Audio File...</span>
+                </button>
+                <div className="context-menu-separator" />
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={() => {
+                    store.addAudioTrack(`Audio ${store.project.independentAudioTracks.length + 1}`);
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Add Empty Audio Track</span>
+                </button>
+              </>
+            ) : contextMenu.type === "audio-track-empty" ? (
+              <>
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={async () => {
+                    setContextMenu(null);
+                    const trackId = contextMenu.id;
+                    const filePath = await window.api.invoke('dialog:open-file', {
+                      filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }],
+                    }) as string | null;
+                    if (filePath) {
+                      await useEditorStore.getState().addAudioClip(trackId, filePath);
+                    }
+                  }}
+                >
+                  <span>Import Audio File...</span>
+                </button>
+                <div className="context-menu-separator" />
+                <button
+                  className="timeline-context-menu-item danger"
+                  onClick={() => {
+                    store.removeAudioTrack(contextMenu.id);
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Remove Track</span>
                 </button>
               </>
             ) : (

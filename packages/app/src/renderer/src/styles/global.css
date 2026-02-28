@@ -1968,29 +1968,6 @@ textarea::placeholder {
   padding: 0 8px;
 }
 
-/* Add Audio Track button */
-.timeline-add-audio-track {
-  padding: 4px 8px;
-}
-
-.add-audio-track-btn {
-  background: transparent;
-  border: 1px dashed rgba(255, 255, 255, 0.2);
-  border-radius: var(--radius-sm);
-  color: rgba(255, 255, 255, 0.4);
-  font-size: 11px;
-  padding: 4px 12px;
-  cursor: pointer;
-  transition: var(--transition-glass);
-  width: 100%;
-}
-
-.add-audio-track-btn:hover {
-  border-color: rgba(255, 255, 255, 0.35);
-  color: rgba(255, 255, 255, 0.7);
-  background: rgba(255, 255, 255, 0.05);
-}
-
 /* D&D drop overlay */
 .editor-drop-overlay {
   position: absolute;

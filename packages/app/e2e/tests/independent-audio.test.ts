@@ -6,7 +6,7 @@
  * - Audio clip selection (single-click, Cmd+Click toggle, cross-type deselect)
  * - Split (splitAudioClip produces two clips from one)
  * - Context menu (all items present, Delete removes clip, Split at Playhead)
- * - Add Audio Track button (creates empty tracks with sequential labels)
+ * - Context menus (timeline empty area and audio track empty area)
  * - Keyboard shortcuts (Delete/Backspace removes, Cmd+C/V copy-paste)
  * - Trim handles (visible on audio clips)
  * - Move clip (drag repositions)
@@ -476,33 +476,73 @@ test.describe('Independent audio tracks', () => {
 
   // ==================== Add Audio Track ====================
 
-  test('clicking "+ Audio Track" button adds a new empty track', async ({ page }) => {
-    await setupEditorWithClips(page, 2)
+  test('right-click on timeline empty area shows context menu with Add Empty Audio Track', async ({ page }) => {
+    await setupEditorWithAudio(page)
 
-    const addBtn = page.locator('.add-audio-track-btn')
-    await expect(addBtn).toBeVisible()
+    // Right-click on the timeline area (not on a clip)
+    const timeline = page.locator('.timeline')
+    await timeline.click({ button: 'right', position: { x: 10, y: 10 } })
 
-    // Click once — should add "Audio 1"
-    await addBtn.click()
+    const menu = page.locator('.timeline-context-menu')
+    await expect(menu).toBeVisible({ timeout: 3_000 })
+
+    // Should have "Import Audio File..." and "Add Empty Audio Track"
+    const items = menu.locator('.timeline-context-menu-item')
+    const texts = await items.allTextContents()
+    expect(texts.some(t => t.includes('Import Audio File'))).toBe(true)
+    expect(texts.some(t => t.includes('Add Empty Audio Track'))).toBe(true)
+
+    // Click "Add Empty Audio Track"
+    const addTrackItem = items.filter({ hasText: 'Add Empty Audio Track' })
+    await addTrackItem.click()
+
+    // Should now have 3 independent audio track rows (2 from setup + 1 new)
     const audioTrackRows = page.locator('.audio-track-row.independent')
-    await expect(audioTrackRows).toHaveCount(1, { timeout: 3_000 })
-    await expect(audioTrackRows.nth(0).locator('.timeline-row-label')).toContainText('Audio 1')
-
-    // Click again — should add "Audio 2"
-    await addBtn.click()
-    await expect(audioTrackRows).toHaveCount(2, { timeout: 3_000 })
-    await expect(audioTrackRows.nth(1).locator('.timeline-row-label')).toContainText('Audio 2')
+    await expect(audioTrackRows).toHaveCount(3, { timeout: 3_000 })
+    await expect(audioTrackRows.nth(2).locator('.timeline-row-label')).toContainText('Audio 3')
   })
 
-  test('add-audio-track button not visible when no clips in timeline', async ({ page }) => {
-    // Navigate to Editor without any clips
-    await page.locator('.header-tab').filter({ hasText: 'Editor' }).click()
-    await page.waitForTimeout(300)
+  test('right-click on audio track empty area shows track context menu', async ({ page }) => {
+    await setupEditorWithAudio(page)
 
-    // When there are no clips, the timeline shows "No clips in timeline"
-    // and the add-audio-track button should not be visible
-    const addBtn = page.locator('.add-audio-track-btn')
-    await expect(addBtn).not.toBeVisible()
+    // The SE track (index 1) has no clips — right-click its content area
+    const audioTrackRows = page.locator('.audio-track-row.independent')
+    const seTrackContent = audioTrackRows.nth(1).locator('.timeline-row-content')
+    await seTrackContent.click({ button: 'right', position: { x: 50, y: 10 } })
+
+    const menu = page.locator('.timeline-context-menu')
+    await expect(menu).toBeVisible({ timeout: 3_000 })
+
+    // Should have "Import Audio File..." and "Remove Track"
+    const items = menu.locator('.timeline-context-menu-item')
+    const texts = await items.allTextContents()
+    expect(texts.some(t => t.includes('Import Audio File'))).toBe(true)
+    expect(texts.some(t => t.includes('Remove Track'))).toBe(true)
+
+    await page.keyboard.press('Escape')
+  })
+
+  test('Remove Track via context menu removes the audio track', async ({ page }) => {
+    await setupEditorWithAudio(page)
+
+    // Verify 2 tracks exist initially
+    const audioTrackRows = page.locator('.audio-track-row.independent')
+    await expect(audioTrackRows).toHaveCount(2)
+
+    // Right-click on the SE track (index 1) empty area
+    const seTrackContent = audioTrackRows.nth(1).locator('.timeline-row-content')
+    await seTrackContent.click({ button: 'right', position: { x: 50, y: 10 } })
+
+    const menu = page.locator('.timeline-context-menu')
+    await expect(menu).toBeVisible({ timeout: 3_000 })
+
+    // Click "Remove Track"
+    const removeItem = menu.locator('.timeline-context-menu-item.danger')
+    await removeItem.dispatchEvent('click')
+
+    // Should now have 1 track
+    await expect(audioTrackRows).toHaveCount(1, { timeout: 3_000 })
+    await expect(audioTrackRows.nth(0).locator('.timeline-row-label')).toContainText('BGM')
   })
 
   // ==================== Keyboard Shortcuts ====================
