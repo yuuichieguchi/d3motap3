@@ -12,11 +12,11 @@ const is = {
 protocol.registerSchemesAsPrivileged([
   {
     scheme: 'media',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
   },
   {
     scheme: 'audio',
-    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true }
   }
 ])
 
