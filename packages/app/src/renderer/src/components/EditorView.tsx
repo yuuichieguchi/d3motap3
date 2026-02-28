@@ -45,7 +45,7 @@ export function EditorView() {
     mixerSettings: activeBundle?.mixerSettings,
     bundlePath: activeBundle?.bundlePath,
     isPlaying: store.isPlaying,
-    currentTimeMs: store.currentTimeMs,
+    currentTimeMs: activeClipResult?.localTime ?? 0,
   })
 
   const isBundleClip = !!activeBundle

@@ -64,6 +64,11 @@ export function useAudioPlayback({
 
       try {
         const response = await fetch(url)
+        if (!response.ok) {
+          console.error(`Audio fetch failed for ${track.id}: ${response.status} ${response.statusText}`)
+          ;(window as any).__audioLoadError = { trackId: track.id, phase: 'fetch', status: response.status, url }
+          return
+        }
         const arrayBuffer = await response.arrayBuffer()
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
 
@@ -77,13 +82,17 @@ export function useAudioPlayback({
         })
       } catch (err) {
         console.error(`Failed to load audio track ${track.id}:`, err)
+        ;(window as any).__audioLoadError = { trackId: track.id, phase: 'catch', error: String(err), url }
       }
     })
 
     Promise.all(loadPromises).then(() => {
-      if (trackStatesRef.current.size > 0) {
+      const loaded = trackStatesRef.current.size > 0
+      if (loaded) {
         setIsLoaded(true)
       }
+      // Expose load completion for E2E test polling
+      ;(window as any).__audioLoadState = { loaded, trackCount: trackStatesRef.current.size }
     })
 
     return () => {
@@ -134,6 +143,16 @@ export function useAudioPlayback({
       const safeOffset = Math.max(0, Math.min(offsetSeconds, state.buffer.duration))
       source.start(0, safeOffset)
       state.sourceNode = source
+    }
+
+    // Expose debug info for E2E tests
+    ;(window as any).__audioPlaybackDebug = {
+      lastOffsetSeconds: Math.max(0, Math.min(offsetSeconds,
+        [...trackStatesRef.current.values()].find(s => s.buffer)?.buffer?.duration ?? 0)),
+      bufferDuration: [...trackStatesRef.current.values()].find(s => s.buffer)?.buffer?.duration ?? 0,
+      activeSourceCount: [...trackStatesRef.current.values()].filter(s => s.sourceNode).length,
+      contextState: ctx.state,
+      isLoaded,
     }
   }, [isLoaded])
 

@@ -224,31 +224,39 @@ app.whenReady().then(() => {
       const pcmData = await readFile(filePath)
 
       // Build WAV header for the PCM data (f32le format)
+      // IEEE float (format 3) requires cbSize field in fmt chunk and a fact chunk
       const bitsPerSample = 32
       const bytesPerSample = bitsPerSample / 8
       const blockAlign = channels * bytesPerSample
       const byteRate = sampleRate * blockAlign
       const dataSize = pcmData.byteLength
-      const headerSize = 44
+      const numSampleFrames = dataSize / blockAlign
+      const headerSize = 58 // 12 (RIFF) + 26 (fmt w/ cbSize) + 12 (fact) + 8 (data header)
       const fileSize = headerSize + dataSize
 
       const header = Buffer.alloc(headerSize)
+      let offset = 0
       // RIFF header
-      header.write('RIFF', 0)
-      header.writeUInt32LE(fileSize - 8, 4)
-      header.write('WAVE', 8)
-      // fmt chunk
-      header.write('fmt ', 12)
-      header.writeUInt32LE(16, 16) // chunk size
-      header.writeUInt16LE(3, 20) // format: IEEE float
-      header.writeUInt16LE(channels, 22)
-      header.writeUInt32LE(sampleRate, 24)
-      header.writeUInt32LE(byteRate, 28)
-      header.writeUInt16LE(blockAlign, 30)
-      header.writeUInt16LE(bitsPerSample, 32)
+      header.write('RIFF', offset); offset += 4
+      header.writeUInt32LE(fileSize - 8, offset); offset += 4
+      header.write('WAVE', offset); offset += 4
+      // fmt chunk (18 bytes of data for IEEE float: 16 standard + 2 cbSize)
+      header.write('fmt ', offset); offset += 4
+      header.writeUInt32LE(18, offset); offset += 4 // chunk data size
+      header.writeUInt16LE(3, offset); offset += 2 // format: IEEE float
+      header.writeUInt16LE(channels, offset); offset += 2
+      header.writeUInt32LE(sampleRate, offset); offset += 4
+      header.writeUInt32LE(byteRate, offset); offset += 4
+      header.writeUInt16LE(blockAlign, offset); offset += 2
+      header.writeUInt16LE(bitsPerSample, offset); offset += 2
+      header.writeUInt16LE(0, offset); offset += 2 // cbSize: no extra format data
+      // fact chunk (required for non-PCM formats)
+      header.write('fact', offset); offset += 4
+      header.writeUInt32LE(4, offset); offset += 4 // chunk data size
+      header.writeUInt32LE(numSampleFrames, offset); offset += 4
       // data chunk
-      header.write('data', 36)
-      header.writeUInt32LE(dataSize, 40)
+      header.write('data', offset); offset += 4
+      header.writeUInt32LE(dataSize, offset)
 
       const wavBuffer = Buffer.concat([header, pcmData])
 

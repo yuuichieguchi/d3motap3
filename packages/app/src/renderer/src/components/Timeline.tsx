@@ -232,46 +232,46 @@ export function Timeline() {
       </div>
 
       {/* Audio tracks from bundle clips */}
-      {store.project.clips.some((c) => c.audioTracks) && (
-        <>
-          {store.project.clips
-            .filter((c) => c.audioTracks && c.audioTracks.length > 0)
-            .flatMap((c) =>
-              c.audioTracks!.map((track) => {
-                const clipDuration = c.originalDuration - c.trimStart - c.trimEnd;
-                const width = totalDuration > 0 ? (clipDuration / totalDuration) * 100 : 0;
-                const isMuted = c.mixerSettings?.tracks.find((t) => t.trackId === track.id)?.muted;
-
-                return (
-                  <div key={`${c.id}-${track.id}`} className="timeline-row audio-track-row">
-                    <div className="timeline-row-label">
-                      <span className="audio-track-icon">{isMuted ? '🔇' : '🔊'}</span>
-                      <span>{track.label}</span>
-                    </div>
-                    <div className="timeline-row-content">
+      {(() => {
+        const audioTrackMap = new Map<string, { id: string; type: string; label: string }>()
+        for (const c of clips) {
+          for (const t of c.audioTracks ?? []) {
+            if (!audioTrackMap.has(t.id)) audioTrackMap.set(t.id, { id: t.id, type: t.type, label: t.label })
+          }
+        }
+        if (audioTrackMap.size === 0) return null
+        return [...audioTrackMap.values()].map((track) => {
+          // Show muted icon only when ALL clips with this track have it muted
+          const clipsWithTrack = clips.filter((c) => c.audioTracks?.some((t) => t.id === track.id))
+          const isMuted = clipsWithTrack.length > 0 && clipsWithTrack.every(
+            (c) => c.mixerSettings?.tracks.find((s) => s.trackId === track.id)?.muted
+          )
+          return (
+            <div key={track.id} className="timeline-row audio-track-row">
+              <div className="timeline-row-label">
+                <span className="audio-track-icon">{isMuted ? '🔇' : '🔊'}</span>
+                <span>{track.label}</span>
+              </div>
+              <div className="timeline-row-content" style={{ display: 'flex' }}>
+                {clips.map((c) => {
+                  const width = getClipWidth(c)
+                  const hasTrack = c.audioTracks?.some((t) => t.id === track.id)
+                  if (!hasTrack) return <div key={c.id} style={{ width: `${width}%` }} />
+                  const trackMuted = c.mixerSettings?.tracks.find((s) => s.trackId === track.id)?.muted
+                  return (
+                    <div key={c.id} style={{ width: `${width}%` }}>
                       <div
-                        className={`audio-track-bar ${track.type} ${isMuted ? 'muted' : ''}`}
-                        style={{ width: `${width}%` }}
-                      >
-                        {track.clips.length > 1 && track.clips.map((clip) => {
-                          const clipWidth = ((clip.endMs - clip.startMs) / clipDuration) * 100;
-                          return (
-                            <div
-                              key={clip.id}
-                              className="audio-clip-segment"
-                              style={{ width: `${clipWidth}%` }}
-                              title={`${clip.filename}`}
-                            />
-                          );
-                        })}
-                      </div>
+                        className={`audio-track-bar ${track.type} ${trackMuted ? 'muted' : ''}`}
+                        style={{ width: '100%', height: '100%' }}
+                      />
                     </div>
-                  </div>
-                );
-              })
-            )}
-        </>
-      )}
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })
+      })()}
 
       {/* Text overlay track */}
       {overlays.length > 0 && (
