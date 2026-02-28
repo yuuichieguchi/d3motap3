@@ -64,6 +64,7 @@ interface EditorState {
 
   // Punch-in actions
   isPunchingIn: boolean
+  punchInStartMs: number
   startPunchIn: () => Promise<void>
   stopPunchIn: () => Promise<void>
 
@@ -95,6 +96,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   exportPollingInterval: null,
   exportOutputPath: null,
   isPunchingIn: false,
+  punchInStartMs: 0,
 
   setOutputResolution: (w, h) => set((state) => ({
     project: { ...state.project, outputWidth: w, outputHeight: h },
@@ -410,20 +412,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           clips: t.clips.map((ac) => ({
             id: ac.id,
             filename: ac.filename,
-            start_ms: ac.startMs,
-            end_ms: ac.endMs,
-            offset_ms: ac.offsetMs,
+            startMs: ac.startMs,
+            endMs: ac.endMs,
+            offsetMs: ac.offsetMs,
           })),
           format: {
-            sample_rate: t.format.sampleRate,
+            sampleRate: t.format.sampleRate,
             channels: t.format.channels,
             encoding: t.format.encoding,
-            bytes_per_sample: t.format.bytesPerSample,
+            bytesPerSample: t.format.bytesPerSample,
           },
         })),
         mixer_settings: c.mixerSettings ? {
           tracks: c.mixerSettings.tracks.map((t) => ({
-            track_id: t.trackId,
+            trackId: t.trackId,
             volume: t.volume,
             muted: t.muted,
           })),
@@ -540,13 +542,14 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     const bundleClip = state.project.clips.find((c) => c.bundlePath)
     if (!bundleClip || !bundleClip.bundlePath) return
 
-    // Generate output path for punch-in PCM
+    // Generate output base path for punch-in (without .pcm extension,
+    // because derive_audio_path will append .mic_audio.pcm)
     const punchId = crypto.randomUUID()
-    const outputPath = `${bundleClip.bundlePath}/tracks/punch-${punchId}.pcm`
+    const outputPath = `${bundleClip.bundlePath}/tracks/punch-${punchId}`
 
     try {
       await window.api.invoke('editor:punch-in-start', outputPath, null)
-      set({ isPunchingIn: true })
+      set({ isPunchingIn: true, punchInStartMs: state.currentTimeMs })
       // Start video playback during punch-in
       state.setPlaying(true)
     } catch (err) {
@@ -571,10 +574,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const bundleClip = state.project.clips.find((c) => c.bundlePath)
       if (!bundleClip || !result.micPath || !bundleClip.audioTracks) return
 
-      const punchStartMs = state.currentTimeMs
-      // Calculate punch duration from PCM file info would require reading file size
-      // For now, use the time elapsed since start
-      // The actual duration will be determined by the PCM file size at export time
+      const punchStartMs = state.punchInStartMs
+      const punchEndMs = state.currentTimeMs
 
       const micTrack = bundleClip.audioTracks.find((t) => t.type === 'mic')
       if (!micTrack) return
@@ -582,14 +583,11 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       // Extract just the filename from the full path
       const filename = result.micPath.split('/').pop() || result.micPath
 
-      // Split the existing clip at punch-in boundaries
-      // This is a simplified approach - the actual split logic would be more complex
-      // for now, just add the punch clip info to the track
       const punchClip = {
         id: crypto.randomUUID(),
         filename,
         startMs: punchStartMs,
-        endMs: punchStartMs, // Will be updated when we know the actual duration
+        endMs: punchEndMs,
         offsetMs: 0,
       }
 
@@ -650,6 +648,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       exportStatus: { status: 'idle' },
       exportOutputPath: null,
       isPunchingIn: false,
+      punchInStartMs: 0,
     })
   },
 }))

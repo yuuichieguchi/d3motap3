@@ -824,8 +824,8 @@ fn run_export(
     // Build bundle audio filters for clips that have separate audio tracks.
     let base_input_count = clips.len();
     let mut bundle_audio_inputs: Vec<String> = Vec::new();
-    let mut bundle_audio_filter = String::new();
-    let mut bundle_audio_label: Option<String> = None;
+    let mut bundle_audio_filters: Vec<String> = Vec::new();
+    let mut bundle_audio_labels: Vec<String> = Vec::new();
 
     for clip in &clips {
         if clip.bundle_path.is_some() && clip.audio_tracks.is_some() {
@@ -846,24 +846,44 @@ fn run_export(
                 clip_duration_s,
             ) {
                 bundle_audio_inputs.extend(inputs);
-                bundle_audio_filter = filter;
-                bundle_audio_label = Some(label);
+                bundle_audio_filters.push(filter);
+                bundle_audio_labels.push(label);
             }
         }
     }
 
     // Compose the final filter_complex, appending bundle audio if present.
-    let final_filter = if !bundle_audio_filter.is_empty() {
-        format!("{};{}", fc.filter_complex, bundle_audio_filter)
+    let final_filter = if !bundle_audio_filters.is_empty() {
+        format!("{};{}", fc.filter_complex, bundle_audio_filters.join(";"))
     } else {
         fc.filter_complex.clone()
     };
 
     // Determine the audio output label: prefer bundle audio over embedded.
-    let audio_map_label: Option<String> = bundle_audio_label
-        .as_ref()
-        .map(|l| format!("[{}]", l))
-        .or_else(|| fc.audio_output_label.clone());
+    // If multiple bundle clips produce separate audio outputs, mix them via amix below.
+    let audio_map_label: Option<String> = if bundle_audio_labels.len() > 1 {
+        Some("[ba_final]".to_string())
+    } else if bundle_audio_labels.len() == 1 {
+        Some(format!("[{}]", bundle_audio_labels[0]))
+    } else {
+        fc.audio_output_label.clone()
+    };
+
+    // If multiple bundle audio outputs, append a final amix stage.
+    let final_filter = if bundle_audio_labels.len() > 1 {
+        let mix_inputs: String = bundle_audio_labels
+            .iter()
+            .map(|l| format!("[{}]", l))
+            .collect();
+        format!(
+            "{};{}amix=inputs={}:duration=longest[ba_final]",
+            final_filter,
+            mix_inputs,
+            bundle_audio_labels.len()
+        )
+    } else {
+        final_filter
+    };
 
     let mut args: Vec<String> = Vec::new();
     args.extend(["-y".to_string(), "-hide_banner".to_string()]);
