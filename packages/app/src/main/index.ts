@@ -8,10 +8,16 @@ const is = {
   dev: process.env.NODE_ENV === 'development' || !app.isPackaged
 }
 
-protocol.registerSchemesAsPrivileged([{
-  scheme: 'media',
-  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
-}])
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: 'media',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  },
+  {
+    scheme: 'audio',
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true }
+  }
+])
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -167,6 +173,62 @@ app.whenReady().then(() => {
       return new Response('Internal Server Error', { status: 500 })
     }
   })
+
+  protocol.handle('audio', async (request) => {
+    try {
+      const url = new URL(request.url)
+      const filePath = decodeURIComponent(url.pathname)
+      const sampleRate = parseInt(url.searchParams.get('sr') || '48000', 10)
+      const channels = parseInt(url.searchParams.get('ch') || '2', 10)
+
+      const { readFile } = await import('fs/promises')
+      const pcmData = await readFile(filePath)
+
+      // Build WAV header for the PCM data (f32le format)
+      const bitsPerSample = 32
+      const bytesPerSample = bitsPerSample / 8
+      const blockAlign = channels * bytesPerSample
+      const byteRate = sampleRate * blockAlign
+      const dataSize = pcmData.byteLength
+      const headerSize = 44
+      const fileSize = headerSize + dataSize
+
+      const header = Buffer.alloc(headerSize)
+      // RIFF header
+      header.write('RIFF', 0)
+      header.writeUInt32LE(fileSize - 8, 4)
+      header.write('WAVE', 8)
+      // fmt chunk
+      header.write('fmt ', 12)
+      header.writeUInt32LE(16, 16) // chunk size
+      header.writeUInt16LE(3, 20) // format: IEEE float
+      header.writeUInt16LE(channels, 22)
+      header.writeUInt32LE(sampleRate, 24)
+      header.writeUInt32LE(byteRate, 28)
+      header.writeUInt16LE(blockAlign, 30)
+      header.writeUInt16LE(bitsPerSample, 32)
+      // data chunk
+      header.write('data', 36)
+      header.writeUInt32LE(dataSize, 40)
+
+      const wavBuffer = Buffer.concat([header, pcmData])
+
+      return new Response(wavBuffer, {
+        status: 200,
+        headers: {
+          'Content-Type': 'audio/wav',
+          'Content-Length': String(wavBuffer.byteLength),
+        },
+      })
+    } catch (e: unknown) {
+      const code = (e as NodeJS.ErrnoException).code
+      if (code === 'ENOENT') {
+        return new Response('Not Found', { status: 404 })
+      }
+      return new Response('Internal Server Error', { status: 500 })
+    }
+  })
+
   registerIpcHandlers()
   mainWindow = createWindow()
 

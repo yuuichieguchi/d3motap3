@@ -1,5 +1,6 @@
 import { useRef, useCallback, useEffect } from 'react'
 import { useEditorStore, consumeUserSeek } from '../store/editor'
+import { useAudioPlayback } from '../hooks/useAudioPlayback'
 import { Timeline } from './Timeline'
 import { TextOverlayEditor } from './TextOverlayEditor'
 
@@ -26,6 +27,28 @@ export function EditorView() {
     }
     return null
   }, [store.project.clips])
+
+  // Get active clip's bundle info for audio playback
+  const activeClipResult = getClipAtTime(store.currentTimeMs)
+  const activeBundle = activeClipResult?.clip.bundlePath
+    ? {
+        bundlePath: activeClipResult.clip.bundlePath,
+        audioTracks: activeClipResult.clip.audioTracks,
+        mixerSettings: activeClipResult.clip.mixerSettings,
+      }
+    : undefined
+
+  // Web Audio API playback for .d3m bundles
+  useAudioPlayback({
+    videoRef,
+    audioTracks: activeBundle?.audioTracks,
+    mixerSettings: activeBundle?.mixerSettings,
+    bundlePath: activeBundle?.bundlePath,
+    isPlaying: store.isPlaying,
+    currentTimeMs: store.currentTimeMs,
+  })
+
+  const isBundleClip = !!activeBundle
 
   // Update video element when current time changes
   useEffect(() => {
@@ -158,6 +181,7 @@ export function EditorView() {
             ref={videoRef}
             className="editor-video"
             controls={false}
+            muted={isBundleClip}
           />
         )}
         {store.project.clips.length === 0 && (
