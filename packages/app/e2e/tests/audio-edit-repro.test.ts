@@ -265,5 +265,9 @@ test.describe('Bundle audio promotion: recorded audio becomes editable independe
     console.log(`Independent audio tracks: ${finalState?.independentAudioTrackCount}`)
     console.log(`Total independent audio clips: ${clipCountAfterPaste}`)
     console.log('All editing operations (select, split, cut, paste) verified.')
+
+    // Cleanup: navigate back to Recording tab to avoid polluting subsequent tests
+    await page.locator('.header-tab').filter({ hasText: 'Recording' }).click()
+    await page.waitForTimeout(500)
   })
 })
