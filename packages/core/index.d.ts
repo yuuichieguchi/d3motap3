@@ -103,3 +103,7 @@ export declare function editorProbe(path: string): VideoMetadataJs
 export declare function editorThumbnails(path: string, count: number, width: number): Array<Buffer>
 export declare function editorExport(projectJson: string, outputPath: string): void
 export declare function editorExportStatus(): string
+export declare function editorProbeBundle(bundlePath: string): string
+export declare function punchInStart(outputPath: string, microphoneDeviceId?: string | undefined | null): void
+export declare function punchInStop(): string
+export declare function isPunchInActive(): boolean
