@@ -86,6 +86,27 @@ export function LayoutSelector() {
         </div>
       )}
 
+      {layoutStore.activeLayout === 'Pip' && (
+        <div className="control-group">
+          <label>PiP Size</label>
+          <input
+            type="range"
+            min="0.1"
+            max="0.5"
+            step="0.01"
+            value={(layoutStore.layoutConfig.pipScale as number) ?? 0.25}
+            onChange={(e) => {
+              layoutStore.setLayoutConfig({ ...layoutStore.layoutConfig, pipScale: Number(e.target.value) })
+              const sourceIds = activeSources.map((s) => s.id)
+              if (sourceIds.length >= 2) {
+                layoutStore.applyLayout(sourceIds)
+              }
+            }}
+          />
+          <span className="range-value">{Math.round(((layoutStore.layoutConfig.pipScale as number) ?? 0.25) * 100)}%</span>
+        </div>
+      )}
+
       {layoutStore.error && (
         <div className="error-box">{layoutStore.error}</div>
       )}

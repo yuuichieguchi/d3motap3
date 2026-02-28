@@ -7,6 +7,8 @@
  * - 2 sources enable Side by Side and PiP
  * - Side by Side shows Split Ratio slider
  * - PiP shows Position dropdown with 4 options
+ * - PiP shows PiP Size slider with correct min/max/step attributes
+ * - PiP Size slider value can be changed without errors
  *
  * LayoutSelector.tsx offers three layout options. Side by Side and PiP
  * require at least two active sources and are disabled otherwise.
@@ -111,5 +113,61 @@ test.describe('Layout selection', () => {
 
     const options = await select.locator('option').allTextContents()
     expect(options).toEqual(['Top Left', 'Top Right', 'Bottom Left', 'Bottom Right'])
+  })
+
+  // ==================== PiP Size Controls ====================
+
+  test('Selecting Picture in Picture shows PiP Size slider', async ({ page }) => {
+    // Need 2 sources to enable PiP
+    await addDisplaySource(page)
+    await addTerminalSource(page)
+
+    // Click Picture in Picture layout
+    await page.locator(S.layoutOption).filter({ hasText: 'Picture in Picture' }).click()
+    await page.waitForTimeout(200)
+
+    // Verify the control group with PiP Size label is visible
+    const controlGroup = page.locator(S.controlGroup).filter({ hasText: 'PiP Size' })
+    await expect(controlGroup).toBeVisible()
+
+    // Verify it contains a range input
+    const rangeInput = controlGroup.locator('input[type="range"]')
+    await expect(rangeInput).toBeVisible()
+
+    // Verify the range input has correct min, max, and step attributes
+    await expect(rangeInput).toHaveAttribute('min', '0.1')
+    await expect(rangeInput).toHaveAttribute('max', '0.5')
+    await expect(rangeInput).toHaveAttribute('step', '0.01')
+  })
+
+  test('PiP Size slider value can be changed', async ({ page }) => {
+    // Need 2 sources to enable PiP
+    await addDisplaySource(page)
+    await addTerminalSource(page)
+
+    // Click Picture in Picture layout
+    await page.locator(S.layoutOption).filter({ hasText: 'Picture in Picture' }).click()
+    await page.waitForTimeout(200)
+
+    // Get the range input from PiP Size control group
+    const controlGroup = page.locator(S.controlGroup).filter({ hasText: 'PiP Size' })
+    const input = controlGroup.locator('input[type="range"]')
+
+    // Change the slider value
+    await input.fill('0.35')
+
+    // Trigger input event to ensure the change is processed
+    await input.dispatchEvent('input')
+    await page.waitForTimeout(200)
+
+    // Verify the slider value is updated
+    await expect(input).toHaveValue('0.35')
+
+    // Verify the percentage display is updated
+    const rangeValue = controlGroup.locator('.range-value')
+    await expect(rangeValue).toHaveText('35%')
+
+    // Verify no error box appears after changing the value
+    await expect(page.locator('.error-box')).not.toBeVisible()
   })
 })
