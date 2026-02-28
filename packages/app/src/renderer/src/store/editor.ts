@@ -274,12 +274,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       transition: undefined,
     }
     const clip2: EditorClip = {
+      ...clip,
       id: `clip-${nextClipId++}`,
-      sourcePath: clip.sourcePath,
-      originalDuration: clip.originalDuration,
       trimStart: clip.trimStart + relativeMs,
       trimEnd: clip.trimEnd,
       order: clip.order + 1,
+      transition: undefined,
     }
     
     const clips = state.project.clips.filter((c) => c.id !== clipId)

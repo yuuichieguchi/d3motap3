@@ -623,7 +623,21 @@ fn create_bundle(
     std::fs::write(final_output_path.join("project.json"), project_json)
         .map_err(|e| format!("Failed to write project.json: {}", e))?;
 
+    set_bundle_bit(final_output_path)?;
+
     Ok(final_output_path.to_string_lossy().into_owned())
+}
+
+fn set_bundle_bit(path: &std::path::Path) -> Result<(), String> {
+    use std::process::Command;
+    let status = Command::new("/usr/bin/SetFile")
+        .args(["-a", "B", &path.to_string_lossy()])
+        .status()
+        .map_err(|e| format!("Failed to run SetFile: {}", e))?;
+    if !status.success() {
+        eprintln!("[bundle] Warning: SetFile -a B failed for {:?}", path);
+    }
+    Ok(())
 }
 
 pub fn stop_recording_v2_impl() -> Result<RecordingResult, String> {

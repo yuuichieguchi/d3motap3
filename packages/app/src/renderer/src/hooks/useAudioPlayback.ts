@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import type { AudioTrack, MixerSettings } from '@d3motap3/shared'
 
 interface AudioTrackState {
@@ -27,7 +27,7 @@ export function useAudioPlayback({
   const audioContextRef = useRef<AudioContext | null>(null)
   const trackStatesRef = useRef<Map<string, AudioTrackState>>(new Map())
   const lastSeekTimeRef = useRef<number>(0)
-  const isLoadedRef = useRef(false)
+  const [isLoaded, setIsLoaded] = useState(false)
   const currentBundleRef = useRef<string | undefined>(undefined)
 
   // Initialize AudioContext lazily
@@ -41,18 +41,18 @@ export function useAudioPlayback({
   // Load audio buffers from bundle
   useEffect(() => {
     if (!bundlePath || !audioTracks || audioTracks.length === 0) {
-      isLoadedRef.current = false
+      setIsLoaded(false)
       currentBundleRef.current = undefined
       return
     }
 
     // Skip if already loaded for this bundle
-    if (currentBundleRef.current === bundlePath && isLoadedRef.current) {
+    if (currentBundleRef.current === bundlePath && isLoaded) {
       return
     }
 
     currentBundleRef.current = bundlePath
-    isLoadedRef.current = false
+    setIsLoaded(false)
 
     const ctx = getAudioContext()
     const loadPromises = audioTracks.map(async (track) => {
@@ -81,7 +81,7 @@ export function useAudioPlayback({
     })
 
     Promise.all(loadPromises).then(() => {
-      isLoadedRef.current = true
+      setIsLoaded(true)
     })
 
     return () => {
@@ -111,7 +111,7 @@ export function useAudioPlayback({
   // Start/stop audio source nodes
   const startAudioPlayback = useCallback((offsetSeconds: number) => {
     const ctx = audioContextRef.current
-    if (!ctx || !isLoadedRef.current) return
+    if (!ctx || !isLoaded) return
 
     // Stop existing nodes
     for (const [, state] of trackStatesRef.current) {
@@ -133,7 +133,7 @@ export function useAudioPlayback({
       source.start(0, safeOffset)
       state.sourceNode = source
     }
-  }, [])
+  }, [isLoaded])
 
   const stopAudioPlayback = useCallback(() => {
     for (const [, state] of trackStatesRef.current) {
@@ -146,7 +146,7 @@ export function useAudioPlayback({
 
   // Handle play/pause
   useEffect(() => {
-    if (!bundlePath || !isLoadedRef.current) return
+    if (!bundlePath || !isLoaded) return
 
     const ctx = audioContextRef.current
     if (!ctx) return
@@ -163,11 +163,11 @@ export function useAudioPlayback({
         ctx.suspend()
       }
     }
-  }, [isPlaying, bundlePath, startAudioPlayback, stopAudioPlayback])
+  }, [isPlaying, bundlePath, isLoaded, startAudioPlayback, stopAudioPlayback])
 
   // Handle seek during playback
   useEffect(() => {
-    if (!isPlaying || !bundlePath || !isLoadedRef.current) return
+    if (!isPlaying || !bundlePath || !isLoaded) return
 
     // Only re-sync if the time difference is significant (user seek, not playback tick)
     const timeDiff = Math.abs(currentTimeMs - lastSeekTimeRef.current)
@@ -177,7 +177,7 @@ export function useAudioPlayback({
     if (timeDiff > 100) {
       startAudioPlayback(currentTimeMs / 1000)
     }
-  }, [currentTimeMs, isPlaying, bundlePath, startAudioPlayback])
+  }, [currentTimeMs, isPlaying, bundlePath, isLoaded, startAudioPlayback])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -191,6 +191,6 @@ export function useAudioPlayback({
   }, [stopAudioPlayback])
 
   return {
-    isAudioLoaded: isLoadedRef.current,
+    isAudioLoaded: isLoaded,
   }
 }
