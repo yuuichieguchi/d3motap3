@@ -111,9 +111,9 @@ export function AddSourceDialog({ open, onClose }: AddSourceDialogProps) {
               <button
                 key={w.windowId}
                 className="source-option-btn"
-                onClick={() => handleAdd({ window_id: w.windowId, width: 1920, height: 1080 })}
+                onClick={() => handleAdd({ window_id: w.windowId, width: w.width, height: w.height })}
               >
-                {w.appName} - {w.title || '(untitled)'}
+                {w.appName} - {w.title || '(untitled)'} ({w.width}x{w.height})
               </button>
             ))}
             {sourcesStore.availableWindows.length === 0 && <p>No windows available</p>}

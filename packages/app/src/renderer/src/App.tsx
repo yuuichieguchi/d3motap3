@@ -164,6 +164,7 @@ export function App() {
       }
       store.setLastResult(result)
       store.setStatus('idle')
+      editorStore.reset()
       await editorStore.addClip(result.outputPath)
       setCurrentView('editor')
     } catch (err) {

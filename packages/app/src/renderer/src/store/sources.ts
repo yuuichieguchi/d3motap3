@@ -13,6 +13,8 @@ interface WindowInfo {
   title: string
   appName: string
   isOnScreen: boolean
+  width: number
+  height: number
 }
 
 interface WebcamInfo {

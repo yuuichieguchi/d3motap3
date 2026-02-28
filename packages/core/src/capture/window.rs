@@ -20,6 +20,8 @@ pub struct WindowInfo {
     pub title: String,
     pub app_name: String,
     pub is_on_screen: bool,
+    pub width: u32,
+    pub height: u32,
 }
 
 /// Enumerate all on-screen windows visible to ScreenCaptureKit.
@@ -35,11 +37,14 @@ pub fn list_windows_impl() -> Result<Vec<WindowInfo>, String> {
                 .owning_application()
                 .map(|app| app.application_name())
                 .unwrap_or_default();
+            let frame = w.frame();
             WindowInfo {
                 window_id: w.window_id(),
                 title: w.title().unwrap_or_default(),
                 app_name,
                 is_on_screen: w.is_on_screen(),
+                width: (frame.width as u32).max(1),
+                height: (frame.height as u32).max(1),
             }
         })
         .collect())
