@@ -574,7 +574,7 @@ fn create_bundle(
             let tracks_dir = final_output_path.join("tracks");
             std::fs::create_dir_all(&tracks_dir)
                 .map_err(|e| format!("Failed to create tracks directory: {}", e))?;
-            audio_temp.move_to_bundle(&tracks_dir)
+            audio_temp.move_to_bundle(&tracks_dir, video_duration_ms)
         } else {
             audio_temp.cleanup();
             Vec::new()
