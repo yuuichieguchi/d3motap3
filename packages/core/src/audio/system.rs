@@ -65,9 +65,81 @@ impl AudioTempFiles {
         }
     }
 
+    /// Normalize a PCM file to match the expected video duration.
+    ///
+    /// Truncates or zero-pads the file so its byte length corresponds to
+    /// `video_duration_ms`.  Returns the duration in milliseconds to use
+    /// for the clip's `end_ms`.  On I/O failure the file is left untouched
+    /// and the returned duration is computed from the original file size.
+    fn normalize_pcm_duration(
+        dest: &Path,
+        sample_rate: u32,
+        channels: u32,
+        video_duration_ms: u64,
+    ) -> f64 {
+        let bytes_per_sample: u64 = 4; // f32le
+        let frame_size = channels as u64 * bytes_per_sample;
+        let original_file_size = std::fs::metadata(dest).map(|m| m.len()).unwrap_or(0);
+
+        if original_file_size == 0 {
+            return 0.0;
+        }
+
+        let expected_bytes = if video_duration_ms > 0 {
+            let raw = ((video_duration_ms as f64 / 1000.0)
+                * sample_rate as f64
+                * channels as f64
+                * bytes_per_sample as f64)
+                .round() as u64;
+            (raw / frame_size) * frame_size
+        } else {
+            0
+        };
+
+        let mut normalized = false;
+
+        if expected_bytes > 0 {
+            // Cap padding at 500 MB to prevent OOM from corrupted duration values.
+            const MAX_PAD_BYTES: u64 = 500 * 1024 * 1024;
+
+            if original_file_size > expected_bytes {
+                // Truncate: PCM too long
+                if let Ok(file) = std::fs::OpenOptions::new().write(true).open(dest) {
+                    if file.set_len(expected_bytes).is_ok() {
+                        normalized = true;
+                    }
+                }
+            } else if original_file_size < expected_bytes {
+                let pad_needed = expected_bytes - original_file_size;
+                if pad_needed <= MAX_PAD_BYTES {
+                    // Pad: PCM too short -- append silence (zeros)
+                    if let Ok(mut file) = std::fs::OpenOptions::new().append(true).open(dest) {
+                        use std::io::Write;
+                        let pad = vec![0u8; pad_needed as usize];
+                        if file.write_all(&pad).is_ok() {
+                            normalized = true;
+                        }
+                    }
+                }
+            } else {
+                // Exact match -- nothing to do.
+                normalized = true;
+            }
+        }
+
+        if normalized && video_duration_ms > 0 {
+            video_duration_ms as f64
+        } else {
+            // Fallback: compute duration from (original) file size.
+            let sr = sample_rate as f64;
+            let ch = channels as f64;
+            (original_file_size as f64 / (sr * ch * bytes_per_sample as f64)) * 1000.0
+        }
+    }
+
     /// Move PCM files into the bundle's tracks directory and return AudioTrack metadata.
     /// Returns a Vec of AudioTrack for each non-empty audio file.
-    pub fn move_to_bundle(&self, tracks_dir: &Path) -> Vec<crate::editor::AudioTrack> {
+    pub fn move_to_bundle(&self, tracks_dir: &Path, video_duration_ms: u64) -> Vec<crate::editor::AudioTrack> {
         use uuid::Uuid;
         let mut tracks = Vec::new();
 
@@ -82,13 +154,7 @@ impl AudioTempFiles {
             if moved.is_ok() {
                 let sr = self.system_sample_rate.unwrap_or(48000);
                 let ch = self.system_channel_count.unwrap_or(2);
-                let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-                let bytes_per_sample: u64 = 4;
-                let duration_ms = if sr > 0 && ch > 0 {
-                    (file_size as f64 / (sr as f64 * ch as f64 * bytes_per_sample as f64)) * 1000.0
-                } else {
-                    0.0
-                };
+                let duration_ms = Self::normalize_pcm_duration(&dest, sr, ch, video_duration_ms);
 
                 tracks.push(crate::editor::AudioTrack {
                     id: "system".to_string(),
@@ -122,13 +188,7 @@ impl AudioTempFiles {
             if moved.is_ok() {
                 let sr = self.mic_sample_rate.unwrap_or(48000);
                 let ch = self.mic_channel_count.unwrap_or(1);
-                let file_size = std::fs::metadata(&dest).map(|m| m.len()).unwrap_or(0);
-                let bytes_per_sample: u64 = 4;
-                let duration_ms = if sr > 0 && ch > 0 {
-                    (file_size as f64 / (sr as f64 * ch as f64 * bytes_per_sample as f64)) * 1000.0
-                } else {
-                    0.0
-                };
+                let duration_ms = Self::normalize_pcm_duration(&dest, sr, ch, video_duration_ms);
 
                 tracks.push(crate::editor::AudioTrack {
                     id: "mic".to_string(),
@@ -1076,5 +1136,325 @@ mod tests {
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
             .collect();
         assert_eq!(samples, vec![1.0, 4.0, 2.0, 5.0, 3.0, 0.0]);
+    }
+
+    // -----------------------------------------------------------------------
+    // move_to_bundle — PCM duration normalization (TDD Red phase)
+    // -----------------------------------------------------------------------
+
+    /// Helper: create PCM data of a given duration.
+    /// Returns a Vec<u8> filled with non-zero f32 samples (0.1) so we can
+    /// distinguish real data from zero-padding.
+    fn make_pcm_data(sample_rate: u32, channels: u32, duration_ms: u64) -> Vec<u8> {
+        let bytes_per_sample: u64 = 4; // f32le
+        let total_bytes =
+            (duration_ms as f64 / 1000.0) * sample_rate as f64 * channels as f64 * bytes_per_sample as f64;
+        let total_bytes = total_bytes as usize;
+        // Fill with 0.1f32 samples so we can tell them apart from zero-padding
+        let sample_bytes = 0.1f32.to_le_bytes();
+        let mut data = Vec::with_capacity(total_bytes);
+        while data.len() + 4 <= total_bytes {
+            data.extend_from_slice(&sample_bytes);
+        }
+        data
+    }
+
+    #[test]
+    fn test_move_to_bundle_truncation() {
+        // 5 seconds of system audio at 48kHz stereo f32le
+        let sample_rate: u32 = 48000;
+        let channels: u32 = 2;
+        let pcm_data = make_pcm_data(sample_rate, channels, 5000);
+        assert_eq!(pcm_data.len(), 1_920_000, "precondition: 5s of PCM data");
+
+        let dir = std::env::temp_dir().join("test_move_to_bundle_truncation");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.join("system-audio.pcm");
+        std::fs::write(&src_path, &pcm_data).unwrap();
+
+        let tracks_dir = dir.join("tracks");
+        std::fs::create_dir_all(&tracks_dir).unwrap();
+
+        let temp_files = AudioTempFiles {
+            system_audio_path: Some(src_path),
+            mic_audio_path: None,
+            system_sample_rate: Some(sample_rate),
+            mic_sample_rate: None,
+            system_channel_count: Some(channels),
+            mic_channel_count: None,
+        };
+
+        // video_duration_ms = 3000 (3 seconds) — file should be truncated.
+        let tracks = temp_files.move_to_bundle(&tracks_dir, 3000);
+
+        // Expected file size: 3s * 48000 * 2 * 4 = 1,152,000 bytes
+        let dest = tracks_dir.join("system-audio.pcm");
+        let file_size = std::fs::metadata(&dest).unwrap().len();
+        assert_eq!(file_size, 1_152_000, "PCM should be truncated to 3 seconds");
+
+        // The returned AudioTrack should report endMs = 3000.0
+        assert_eq!(tracks.len(), 1);
+        let clip = &tracks[0].clips[0];
+        assert!((clip.end_ms - 3000.0).abs() < 0.01, "endMs should be 3000.0, got {}", clip.end_ms);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_move_to_bundle_padding() {
+        // 2 seconds of system audio at 48kHz stereo f32le
+        let sample_rate: u32 = 48000;
+        let channels: u32 = 2;
+        let pcm_data = make_pcm_data(sample_rate, channels, 2000);
+        assert_eq!(pcm_data.len(), 384_000 * 2, "precondition: 2s of PCM data");
+
+        let dir = std::env::temp_dir().join("test_move_to_bundle_padding");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.join("system-audio.pcm");
+        std::fs::write(&src_path, &pcm_data).unwrap();
+
+        let tracks_dir = dir.join("tracks");
+        std::fs::create_dir_all(&tracks_dir).unwrap();
+
+        let temp_files = AudioTempFiles {
+            system_audio_path: Some(src_path),
+            mic_audio_path: None,
+            system_sample_rate: Some(sample_rate),
+            mic_sample_rate: None,
+            system_channel_count: Some(channels),
+            mic_channel_count: None,
+        };
+
+        // video_duration_ms = 3000 (3 seconds) — needs padding.
+        let tracks = temp_files.move_to_bundle(&tracks_dir, 3000);
+
+        // Expected file size: 3s * 48000 * 2 * 4 = 1,152,000 bytes
+        let dest = tracks_dir.join("system-audio.pcm");
+        let file_size = std::fs::metadata(&dest).unwrap().len();
+        assert_eq!(file_size, 1_152_000, "PCM should be padded to 3 seconds");
+
+        // The padded region (bytes after original data) should all be zero
+        let file_content = std::fs::read(&dest).unwrap();
+        let original_len = pcm_data.len();
+        let padded_region = &file_content[original_len..];
+        assert!(
+            padded_region.iter().all(|&b| b == 0),
+            "padded bytes should all be zero"
+        );
+
+        // The returned AudioTrack should report endMs = 3000.0
+        assert_eq!(tracks.len(), 1);
+        let clip = &tracks[0].clips[0];
+        assert!((clip.end_ms - 3000.0).abs() < 0.01, "endMs should be 3000.0, got {}", clip.end_ms);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_move_to_bundle_exact_match() {
+        // Exactly 3 seconds of system audio at 48kHz stereo f32le
+        let sample_rate: u32 = 48000;
+        let channels: u32 = 2;
+        let pcm_data = make_pcm_data(sample_rate, channels, 3000);
+        assert_eq!(pcm_data.len(), 1_152_000, "precondition: 3s of PCM data");
+
+        let dir = std::env::temp_dir().join("test_move_to_bundle_exact_match");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.join("system-audio.pcm");
+        std::fs::write(&src_path, &pcm_data).unwrap();
+
+        let tracks_dir = dir.join("tracks");
+        std::fs::create_dir_all(&tracks_dir).unwrap();
+
+        let temp_files = AudioTempFiles {
+            system_audio_path: Some(src_path),
+            mic_audio_path: None,
+            system_sample_rate: Some(sample_rate),
+            mic_sample_rate: None,
+            system_channel_count: Some(channels),
+            mic_channel_count: None,
+        };
+
+        // video_duration_ms = 3000 — exact match, no truncation/padding needed.
+        let tracks = temp_files.move_to_bundle(&tracks_dir, 3000);
+
+        // File size should remain unchanged
+        let dest = tracks_dir.join("system-audio.pcm");
+        let file_size = std::fs::metadata(&dest).unwrap().len();
+        assert_eq!(file_size, 1_152_000, "PCM size should be unchanged for exact match");
+
+        // The returned AudioTrack should report endMs = 3000.0
+        assert_eq!(tracks.len(), 1);
+        let clip = &tracks[0].clips[0];
+        assert!((clip.end_ms - 3000.0).abs() < 0.01, "endMs should be 3000.0, got {}", clip.end_ms);
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_move_to_bundle_empty_file() {
+        // Empty (0-byte) system audio file — should not produce a track
+        let dir = std::env::temp_dir().join("test_move_to_bundle_empty_file");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.join("system-audio.pcm");
+        std::fs::write(&src_path, b"").unwrap(); // 0 bytes
+
+        let tracks_dir = dir.join("tracks");
+        std::fs::create_dir_all(&tracks_dir).unwrap();
+
+        let temp_files = AudioTempFiles {
+            system_audio_path: Some(src_path),
+            mic_audio_path: None,
+            system_sample_rate: Some(48000),
+            mic_sample_rate: None,
+            system_channel_count: Some(2),
+            mic_channel_count: None,
+        };
+
+        // video_duration_ms = 3000.
+        // Empty files are filtered out by system_audio_path_if_nonempty(),
+        // so no track should be created and no padding should occur.
+        let tracks = temp_files.move_to_bundle(&tracks_dir, 3000);
+
+        // No tracks should be returned for an empty file
+        assert!(
+            tracks.is_empty(),
+            "empty PCM file should not produce any audio tracks"
+        );
+
+        // The destination file should NOT exist (empty source is skipped)
+        let dest = tracks_dir.join("system-audio.pcm");
+        assert!(
+            !dest.exists(),
+            "no file should be created in tracks_dir for empty source"
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_move_to_bundle_mic_truncation() {
+        // 5 seconds of mic audio at 16kHz mono f32le
+        let sample_rate: u32 = 16000;
+        let channels: u32 = 1;
+        let pcm_data = make_pcm_data(sample_rate, channels, 5000);
+        assert_eq!(pcm_data.len(), 320_000, "precondition: 5s of mono 16kHz PCM data");
+
+        let dir = std::env::temp_dir().join("test_move_to_bundle_mic_truncation");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.join("mic-audio.pcm");
+        std::fs::write(&src_path, &pcm_data).unwrap();
+
+        let tracks_dir = dir.join("tracks");
+        std::fs::create_dir_all(&tracks_dir).unwrap();
+
+        let temp_files = AudioTempFiles {
+            system_audio_path: None,
+            mic_audio_path: Some(src_path),
+            system_sample_rate: None,
+            mic_sample_rate: Some(sample_rate),
+            system_channel_count: None,
+            mic_channel_count: Some(channels),
+        };
+
+        // video_duration_ms = 3000 (3 seconds) — mic file should be truncated.
+        let tracks = temp_files.move_to_bundle(&tracks_dir, 3000);
+
+        // Expected file size: 3s * 16000 * 1 * 4 = 192,000 bytes
+        let dest = tracks_dir.join("mic-audio.pcm");
+        let file_size = std::fs::metadata(&dest).unwrap().len();
+        assert_eq!(file_size, 192_000, "mic PCM should be truncated to 3 seconds");
+
+        // Should produce exactly one track with id "mic"
+        assert_eq!(tracks.len(), 1, "should produce exactly one mic track");
+        assert_eq!(tracks[0].id, "mic", "track id should be 'mic'");
+
+        // The returned AudioTrack should report endMs = 3000.0
+        let clip = &tracks[0].clips[0];
+        assert!(
+            (clip.end_ms - 3000.0).abs() < 0.01,
+            "endMs should be 3000.0, got {}",
+            clip.end_ms
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_move_to_bundle_zero_duration_fallback() {
+        // 3 seconds of system audio at 48kHz stereo f32le
+        let sample_rate: u32 = 48000;
+        let channels: u32 = 2;
+        let pcm_data = make_pcm_data(sample_rate, channels, 3000);
+        assert_eq!(pcm_data.len(), 1_152_000, "precondition: 3s of PCM data");
+
+        let dir = std::env::temp_dir().join("test_move_to_bundle_zero_duration_fallback");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src_dir = dir.join("src");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let src_path = src_dir.join("system-audio.pcm");
+        std::fs::write(&src_path, &pcm_data).unwrap();
+
+        let tracks_dir = dir.join("tracks");
+        std::fs::create_dir_all(&tracks_dir).unwrap();
+
+        let temp_files = AudioTempFiles {
+            system_audio_path: Some(src_path),
+            mic_audio_path: None,
+            system_sample_rate: Some(sample_rate),
+            mic_sample_rate: None,
+            system_channel_count: Some(channels),
+            mic_channel_count: None,
+        };
+
+        // video_duration_ms = 0 — should fall back to computing duration from file size.
+        let tracks = temp_files.move_to_bundle(&tracks_dir, 0);
+
+        // File size should be unchanged (no truncation or padding when duration is 0)
+        let dest = tracks_dir.join("system-audio.pcm");
+        let file_size = std::fs::metadata(&dest).unwrap().len();
+        assert_eq!(
+            file_size, 1_152_000,
+            "PCM file should be unchanged when video_duration_ms is 0"
+        );
+
+        // The returned AudioTrack should compute endMs from file size: 3000.0
+        assert_eq!(tracks.len(), 1, "should produce exactly one track");
+        let clip = &tracks[0].clips[0];
+        assert!(
+            (clip.end_ms - 3000.0).abs() < 0.01,
+            "endMs should be 3000.0 (computed from file size), got {}",
+            clip.end_ms
+        );
+
+        // Cleanup
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
