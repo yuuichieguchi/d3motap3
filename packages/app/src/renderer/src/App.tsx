@@ -71,6 +71,19 @@ export function App() {
     }
   }, [store.status])
 
+  // Handle open-bundle from Finder double-click
+  useEffect(() => {
+    if (!window.api?.on) return
+    const unsubscribe = window.api.on('open-bundle', (...args: unknown[]) => {
+      const bundlePath = args[0] as string
+      editorStore.reset()
+      editorStore.addClip(bundlePath).then(() => {
+        setCurrentView('editor')
+      })
+    })
+    return unsubscribe
+  }, [])
+
   const handleStartRecording = useCallback(async () => {
     try {
       store.setError(null)
