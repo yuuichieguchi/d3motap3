@@ -217,6 +217,19 @@ export function registerIpcHandlers(): void {
     return nativeBridge.editorProbeBundle(bundlePath)
   })
 
+  // Punch-in recording
+  ipcMain.handle('editor:punch-in-start', (_event, outputPath: string, microphoneDeviceId: string | null) => {
+    return nativeBridge.punchInStart(outputPath, microphoneDeviceId)
+  })
+
+  ipcMain.handle('editor:punch-in-stop', () => {
+    return nativeBridge.punchInStop()
+  })
+
+  ipcMain.handle('editor:is-punch-in-active', () => {
+    return nativeBridge.isPunchInActive()
+  })
+
   ipcMain.handle('editor:import', async () => {
     const result = await dialog.showOpenDialog({
       properties: ['openFile'],

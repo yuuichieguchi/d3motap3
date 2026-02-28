@@ -4,6 +4,7 @@ import { useAudioPlayback } from '../hooks/useAudioPlayback'
 import { Timeline } from './Timeline'
 import { Mixer } from './Mixer'
 import { TextOverlayEditor } from './TextOverlayEditor'
+import { PunchInControls } from './PunchInControls'
 
 export function EditorView() {
   const store = useEditorStore()
@@ -198,6 +199,7 @@ export function EditorView() {
         <button onClick={handleImport}>+ Clip</button>
         <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
         <button onClick={handleSplit} disabled={!store.lastSelectedClipId}>Split</button>
+        <PunchInControls />
       </div>
 
       {/* Playback controls */}

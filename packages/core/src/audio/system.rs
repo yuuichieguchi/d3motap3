@@ -652,6 +652,57 @@ fn derive_audio_path(base_path: &Path, suffix: &str) -> PathBuf {
     base_path.with_file_name(name)
 }
 
+// ---------------------------------------------------------------------------
+// Punch-in recording (mic-only, for narration re-recording)
+// ---------------------------------------------------------------------------
+
+static PUNCH_IN_RECORDER: std::sync::LazyLock<std::sync::Mutex<Option<AudioRecorder>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+/// Start a punch-in recording (microphone only).
+/// The output PCM file is written to `output_path`.
+pub fn punch_in_start(
+    output_path: &Path,
+    microphone_device_id: Option<String>,
+) -> Result<(), String> {
+    let mut guard = PUNCH_IN_RECORDER.lock()
+        .map_err(|e| format!("Punch-in lock error: {}", e))?;
+
+    if guard.is_some() {
+        return Err("Punch-in recording already active".to_string());
+    }
+
+    let config = super::AudioConfig {
+        capture_system_audio: false,
+        capture_microphone: true,
+        microphone_device_id,
+        sample_rate: 48_000,
+        ..super::AudioConfig::default()
+    };
+
+    let recorder = AudioRecorder::start(&config, output_path)?;
+    *guard = Some(recorder);
+    Ok(())
+}
+
+/// Stop the active punch-in recording and return the recorded file info.
+pub fn punch_in_stop() -> Result<AudioTempFiles, String> {
+    let mut guard = PUNCH_IN_RECORDER.lock()
+        .map_err(|e| format!("Punch-in lock error: {}", e))?;
+
+    let recorder = guard.take()
+        .ok_or_else(|| "No active punch-in recording".to_string())?;
+
+    recorder.stop()
+}
+
+/// Check if a punch-in recording is currently active.
+pub fn is_punch_in_active() -> bool {
+    PUNCH_IN_RECORDER.lock()
+        .map(|g| g.is_some())
+        .unwrap_or(false)
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================

@@ -645,3 +645,34 @@ pub fn editor_probe_bundle(bundle_path: String) -> napi::Result<String> {
     editor::editor_probe_bundle(bundle_path)
         .map_err(|e| napi::Error::from_reason(e))
 }
+
+// -------------------------------------------------------------------------
+// Punch-in Recording
+// -------------------------------------------------------------------------
+
+#[napi]
+pub fn punch_in_start(output_path: String, microphone_device_id: Option<String>) -> napi::Result<()> {
+    let path = std::path::Path::new(&output_path);
+    audio::system::punch_in_start(path, microphone_device_id)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
+pub fn punch_in_stop() -> napi::Result<String> {
+    let temp = audio::system::punch_in_stop()
+        .map_err(|e| napi::Error::from_reason(e))?;
+
+    // Return the mic audio path and format info as JSON
+    let result = serde_json::json!({
+        "micPath": temp.mic_audio_path.map(|p| p.to_string_lossy().into_owned()),
+        "sampleRate": temp.mic_sample_rate.unwrap_or(48000),
+        "channels": temp.mic_channel_count.unwrap_or(1),
+    });
+
+    Ok(result.to_string())
+}
+
+#[napi]
+pub fn is_punch_in_active() -> bool {
+    audio::system::is_punch_in_active()
+}

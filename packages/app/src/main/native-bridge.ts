@@ -40,6 +40,9 @@ import {
   editorExportStatus,
   editorProbeBundle,
   listAudioInputDevices,
+  punchInStart,
+  punchInStop,
+  isPunchInActive,
 } from '@d3motap3/core'
 import type {
   DisplayInfo,
@@ -252,5 +255,16 @@ export const nativeBridge = {
   },
   editorProbeBundle(bundlePath: string): string {
     return editorProbeBundle(bundlePath)
+  },
+
+  // Punch-in recording
+  punchInStart(outputPath: string, microphoneDeviceId: string | null): void {
+    punchInStart(outputPath, microphoneDeviceId ?? undefined)
+  },
+  punchInStop(): string {
+    return punchInStop()
+  },
+  isPunchInActive(): boolean {
+    return isPunchInActive()
   },
 }

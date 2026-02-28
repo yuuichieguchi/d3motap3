@@ -1946,3 +1946,41 @@ textarea::placeholder {
 .audio-clip-segment:last-child {
   border-right: none;
 }
+
+/* Punch-in controls */
+.punch-in-controls {
+  display: inline-flex;
+  margin-left: 8px;
+}
+
+.punch-in-btn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.punch-in-btn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.punch-in-btn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.punch-in-btn.recording {
+  background: rgba(239, 68, 68, 0.3);
+  border-color: rgba(239, 68, 68, 0.6);
+  color: #fca5a5;
+  animation: punch-in-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes punch-in-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
