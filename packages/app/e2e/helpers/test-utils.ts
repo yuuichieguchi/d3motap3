@@ -271,3 +271,54 @@ export async function createTestBundle(bundlePath: string): Promise<void> {
   }
   fs.writeFileSync(path.join(bundlePath, 'project.json'), JSON.stringify(project, null, 2))
 }
+
+// ---------------------------------------------------------------------------
+// Test WAV generation
+// ---------------------------------------------------------------------------
+
+/**
+ * Create a test WAV file with a 440Hz sine wave.
+ * Generates a proper WAV file (not raw PCM) that can be decoded by Web Audio API.
+ * Uses low amplitude (0.1) to avoid loud sounds during testing.
+ */
+export function createTestWav(filePath: string, durationSec: number = 1): void {
+  const sampleRate = 44100
+  const channels = 2
+  const bitsPerSample = 16
+  const numSamples = sampleRate * durationSec
+  const dataSize = numSamples * channels * (bitsPerSample / 8)
+  const headerSize = 44
+  const buffer = Buffer.alloc(headerSize + dataSize)
+
+  // RIFF header
+  buffer.write('RIFF', 0)
+  buffer.writeUInt32LE(36 + dataSize, 4)
+  buffer.write('WAVE', 8)
+
+  // fmt chunk
+  buffer.write('fmt ', 12)
+  buffer.writeUInt32LE(16, 16)           // chunk size
+  buffer.writeUInt16LE(1, 20)            // PCM format
+  buffer.writeUInt16LE(channels, 22)
+  buffer.writeUInt32LE(sampleRate, 24)
+  buffer.writeUInt32LE(sampleRate * channels * (bitsPerSample / 8), 28) // byte rate
+  buffer.writeUInt16LE(channels * (bitsPerSample / 8), 32)             // block align
+  buffer.writeUInt16LE(bitsPerSample, 34)
+
+  // data chunk
+  buffer.write('data', 36)
+  buffer.writeUInt32LE(dataSize, 40)
+
+  // Write 440Hz sine wave samples (low amplitude: 0.1)
+  const amplitude = 0.1
+  for (let i = 0; i < numSamples; i++) {
+    const t = i / sampleRate
+    const value = Math.sin(2 * Math.PI * 440 * t) * amplitude
+    const sample = Math.round(value * 32767)
+    for (let ch = 0; ch < channels; ch++) {
+      buffer.writeInt16LE(sample, headerSize + (i * channels + ch) * 2)
+    }
+  }
+
+  fs.writeFileSync(filePath, buffer)
+}
