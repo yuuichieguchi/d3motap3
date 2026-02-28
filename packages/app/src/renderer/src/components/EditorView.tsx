@@ -1,4 +1,4 @@
-import { useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { useEditorStore, consumeUserSeek } from '../store/editor'
 import { useAudioPlayback } from '../hooks/useAudioPlayback'
 import { Timeline } from './Timeline'
@@ -114,10 +114,6 @@ export function EditorView() {
     store.setPlaying(!store.isPlaying)
   }, [store])
 
-  const handleImport = useCallback(async () => {
-    await store.importFile()
-  }, [store])
-
   const handleAddText = useCallback(() => {
     const totalDuration = store.totalDuration()
     if (totalDuration <= 0) return
@@ -150,6 +146,37 @@ export function EditorView() {
     }
   }, [store])
 
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+      setIsDragOver(false)
+    }
+  }, [])
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setIsDragOver(false)
+    const files = Array.from(e.dataTransfer.files)
+    const mediaExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv']
+    for (const file of files) {
+      if (!file.path) continue
+      const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'))
+      if (mediaExts.includes(ext)) {
+        await store.addClip(file.path)
+      }
+    }
+  }, [store])
+
   const handleSeek = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     store.seekTo(Number(e.target.value))
   }, [store])
@@ -164,7 +191,7 @@ export function EditorView() {
   }
 
   return (
-    <div className="editor-view">
+    <div className="editor-view" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
       {/* Header */}
       <div className="editor-header">
         <button
@@ -189,14 +216,15 @@ export function EditorView() {
         {store.project.clips.length === 0 && (
           <div className="editor-empty-state">
             <p>No clips added</p>
-            <button onClick={handleImport}>Import Video</button>
+            <p className="editor-empty-hint">
+              Drop media files here, or ⌘O to open a project
+            </p>
           </div>
         )}
       </div>
 
       {/* Toolbar */}
       <div className="editor-toolbar">
-        <button onClick={handleImport}>+ Clip</button>
         <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
         <button onClick={handleSplit} disabled={!store.lastSelectedClipId}>Split</button>
         <PunchInControls />
@@ -259,6 +287,11 @@ export function EditorView() {
       )}
       {store.exportStatus.status === 'failed' && (
         <div className="error-box">Export failed: {store.exportStatus.error}</div>
+      )}
+      {isDragOver && (
+        <div className="editor-drop-overlay">
+          <p>Drop to import media</p>
+        </div>
       )}
     </div>
   )

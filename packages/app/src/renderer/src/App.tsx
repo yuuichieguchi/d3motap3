@@ -84,6 +84,20 @@ export function App() {
     return unsubscribe
   }, [])
 
+  // Handle import-media from native menu
+  useEffect(() => {
+    if (!window.api?.on) return
+    const unsubscribe = window.api.on('import-media', (...args: unknown[]) => {
+      const filePath = args[0] as string
+      editorStore.addClip(filePath).then(() => {
+        setCurrentView('editor')
+      }).catch((err) => {
+        console.error('Failed to import media:', err)
+      })
+    })
+    return unsubscribe
+  }, [])
+
   const handleStartRecording = useCallback(async () => {
     try {
       store.setError(null)

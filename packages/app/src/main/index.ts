@@ -3,6 +3,7 @@ import { join } from 'path'
 import { pathToFileURL } from 'url'
 import { stat, open } from 'fs/promises'
 import { registerIpcHandlers } from './ipc-handlers'
+import { setupApplicationMenu } from './menu'
 
 const is = {
   dev: process.env.NODE_ENV === 'development' || !app.isPackaged
@@ -230,6 +231,7 @@ app.whenReady().then(() => {
   })
 
   registerIpcHandlers()
+  setupApplicationMenu(getMainWindow)
   mainWindow = createWindow()
 
   if (pendingOpenFile) {

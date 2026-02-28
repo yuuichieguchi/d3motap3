@@ -230,21 +230,6 @@ export function registerIpcHandlers(): void {
     return nativeBridge.isPunchInActive()
   })
 
-  ipcMain.handle('editor:import', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [
-        { name: 'All Supported', extensions: ['d3m', 'mp4', 'mov', 'webm', 'avi', 'mkv'] },
-        { name: 'd3motap3 Project', extensions: ['d3m'] },
-        { name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] },
-      ],
-    })
-    if (result.canceled || result.filePaths.length === 0) {
-      return null
-    }
-    return result.filePaths[0]
-  })
-
   // Dialog
   ipcMain.handle('dialog:open-file', async (_event, options: { filters?: Array<{ name: string; extensions: string[] }> }) => {
     const result = await dialog.showOpenDialog({

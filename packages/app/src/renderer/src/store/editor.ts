@@ -68,9 +68,6 @@ interface EditorState {
   startPunchIn: () => Promise<void>
   stopPunchIn: () => Promise<void>
 
-  // Import
-  importFile: () => Promise<void>
-  
   // Computed
   totalDuration: () => number
   
@@ -482,23 +479,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   },
 
   dismissExportStatus: () => set({ exportStatus: { status: 'idle' } }),
-
-  importFile: async () => {
-    try {
-      const path = await window.api.invoke('dialog:open-file', {
-        filters: [
-          { name: 'All Supported', extensions: ['d3m', 'mp4', 'mov', 'webm', 'avi', 'mkv'] },
-          { name: 'd3motap3 Project', extensions: ['d3m'] },
-          { name: 'Video Files', extensions: ['mp4', 'mov', 'webm', 'avi', 'mkv'] },
-        ],
-      }) as string | null
-      if (path) {
-        await get().addClip(path)
-      }
-    } catch (err) {
-      console.error('Failed to import file:', err)
-    }
-  },
 
   setTrackVolume: (clipId, trackId, volume) => set((state) => ({
     project: {
