@@ -147,4 +147,64 @@ test.describe('Independent audio signal verification', () => {
       `Signal should be near zero after stop, got ${postStopLevel.toFixed(4)}`,
     ).toBeLessThan(0.01)
   })
+
+  test('audio signal persists after volume change', async ({ page }) => {
+    // Wait for independent audio buffers to load
+    await page.waitForFunction(
+      () =>
+        (window as any).__independentAudioLoadState?.loaded === true ||
+        (window as any).__independentAudioLoadError != null,
+      { timeout: 10_000, polling: 200 },
+    )
+
+    const loadState = await page.evaluate(() => (window as any).__independentAudioLoadState)
+    expect(loadState?.loaded, 'Independent audio buffers must be loaded').toBe(true)
+    expect(loadState?.trackCount, 'At least one track must be loaded').toBeGreaterThanOrEqual(1)
+
+    // Trigger the bug: calling setAudioTrackVolume creates a new tracks array reference,
+    // which causes the useEffect in useIndependentAudioPlayback to re-run its cleanup
+    // (destroying all audio state via trackStatesRef.clear()), but the re-run sees the
+    // same tracksKey and returns early without reloading. Result: silence.
+    await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      if (!store) throw new Error('__editorStore not exposed on window')
+      store.getState().setAudioTrackVolume('test-signal-track', 0.8)
+    })
+
+    // Wait for React re-render and effect cycle to complete
+    await page.waitForTimeout(200)
+
+    // Click play via UI
+    await page.locator(S.playBtn).click()
+
+    // Wait a moment for AudioContext to start and buffers to play
+    await page.waitForTimeout(300)
+
+    // Sample signal level every 100ms for 1 second
+    const samples: number[] = []
+    for (let i = 0; i < 10; i++) {
+      await page.waitForTimeout(100)
+      const level = await page.evaluate(() => {
+        const fn = (window as any).__getIndependentAudioSignalLevel
+        return fn ? fn() : -1
+      })
+      samples.push(level)
+    }
+
+    // Stop playback
+    await page.locator(S.playBtn).click()
+
+    // Analyze results — after volume change, signal must still be alive
+    const nonZeroCount = samples.filter((s) => s > 0).length
+    const maxSignal = Math.max(...samples)
+
+    expect(
+      nonZeroCount,
+      `Expected ≥3 non-zero samples after volume change, got ${nonZeroCount}/10: [${samples.map((s) => s.toFixed(3)).join(', ')}]`,
+    ).toBeGreaterThanOrEqual(3)
+    expect(
+      maxSignal,
+      `Peak signal must be ≥0.05 after volume change, got ${maxSignal.toFixed(4)}`,
+    ).toBeGreaterThan(0.05)
+  })
 })

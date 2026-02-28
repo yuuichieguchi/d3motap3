@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState, useMemo } from 'react'
 import type { IndependentAudioTrack } from '@d3motap3/shared'
 
 interface AudioClipState {
@@ -28,33 +28,32 @@ export function useIndependentAudioPlayback({
   const analyserRef = useRef<AnalyserNode | null>(null)
   const lastSeekTimeRef = useRef<number>(0)
   const playbackVersionRef = useRef<number>(0)
-  const loadedTracksKeyRef = useRef<string>('')
   const [isLoaded, setIsLoaded] = useState(false)
 
-  // Load audio buffers when tracks change
+  // Stable key that only changes when clip IDs/paths change (not volume/mute)
+  const clipsKey = useMemo(() =>
+    tracks.flatMap(t => t.clips.map(c => `${t.id}:${c.id}:${c.sourcePath}`)).join('|'),
+    [tracks]
+  )
+
+  // Ref to always access latest tracks without triggering effect re-runs
+  const tracksRef = useRef(tracks)
+  tracksRef.current = tracks
+
+  // Load audio buffers when clips change (not on volume/mute changes)
   useEffect(() => {
-    if (!audioContext || tracks.length === 0) {
-      loadedTracksKeyRef.current = ''
+    if (!audioContext || clipsKey === '') {
       setIsLoaded(false)
       return
     }
 
-    // Build a key from all clip source paths to detect changes
-    const tracksKey = tracks
-      .flatMap((t) => t.clips.map((c) => `${c.id}:${c.sourcePath}`))
-      .join('|')
-
-    if (loadedTracksKeyRef.current === tracksKey) {
-      return // Already loaded
-    }
-
-    loadedTracksKeyRef.current = tracksKey
     setIsLoaded(false)
     const ctx = audioContext
     let cancelled = false
+    const currentTracks = tracksRef.current
 
     const loadAll = async () => {
-      for (const track of tracks) {
+      for (const track of currentTracks) {
         if (cancelled) return
 
         let trackState = trackStatesRef.current.get(track.id)
@@ -153,7 +152,7 @@ export function useIndependentAudioPlayback({
         analyserRef.current = null
       }
     }
-  }, [audioContext, tracks])
+  }, [audioContext, clipsKey])
 
   // Apply volume/mute settings
   useEffect(() => {
@@ -189,7 +188,7 @@ export function useIndependentAudioPlayback({
     }
 
     // Start sources for clips that overlap current time
-    for (const track of tracks) {
+    for (const track of tracksRef.current) {
       if (track.muted) continue
       const trackState = trackStatesRef.current.get(track.id)
       if (!trackState) continue
@@ -218,7 +217,7 @@ export function useIndependentAudioPlayback({
       }
     }
 
-  }, [audioContext, tracks, isLoaded])
+  }, [audioContext, isLoaded])
 
   const stopPlayback = useCallback(() => {
     playbackVersionRef.current++
