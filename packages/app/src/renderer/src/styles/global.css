@@ -1454,12 +1454,29 @@ body {
    ============================================= */
 
 .timeline {
+  position: relative;
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur-light);
   backdrop-filter: var(--glass-blur-light);
   border-top: 1px solid var(--glass-border);
   padding: 8px;
   overflow-x: auto;
+}
+
+.timeline-playhead-overlay {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 8px;
+  right: 8px;
+  display: flex;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.timeline-playhead-area {
+  flex: 1;
+  position: relative;
 }
 
 .timeline-empty {
@@ -1477,19 +1494,33 @@ body {
 }
 
 .clip-track {
+  display: flex;
+  align-items: center;
+}
+
+.clip-track .timeline-row-content {
+  flex: 1;
+  display: flex;
+  min-height: 48px;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: var(--radius-sm);
-  overflow: hidden;
 }
 
 .overlay-track {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.overlay-track .timeline-row-content {
+  flex: 1;
+  min-height: 32px;
+  position: relative;
   background: rgba(139, 92, 246, 0.1);
   border: 1px solid rgba(139, 92, 246, 0.2);
   border-radius: var(--radius-sm);
-  min-height: 32px;
-  margin-top: 4px;
-  position: relative;
 }
 
 .timeline-playhead {
@@ -1498,9 +1529,10 @@ body {
   bottom: 0;
   width: 2px;
   background: var(--accent);
-  z-index: 5;
-  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
+  z-index: 10;
+  pointer-events: auto;
   cursor: col-resize;
+  box-shadow: 0 0 8px rgba(99, 102, 241, 0.5);
 }
 
 .timeline-playhead::before {
@@ -1856,7 +1888,23 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   min-height: 24px;
-  padding: 0 8px;
+  padding: 0;
+}
+
+.clip-track .timeline-row-label,
+.overlay-track .timeline-row-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  width: 100px;
+  flex-shrink: 0;
+}
+
+.timeline-playhead-overlay .timeline-row-label {
+  width: 100px;
+  flex-shrink: 0;
 }
 
 .audio-track-row .timeline-row-label {
@@ -1865,7 +1913,8 @@ textarea::placeholder {
   gap: 4px;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.5);
-  min-width: 100px;
+  width: 100px;
+  flex-shrink: 0;
 }
 
 .audio-track-icon {

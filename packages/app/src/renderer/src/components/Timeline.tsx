@@ -208,83 +208,93 @@ export function Timeline() {
 
   return (
     <div className="timeline" onContextMenu={handleTimelineContextMenu}>
+      {/* Playhead overlay — spans ALL tracks */}
+      <div className="timeline-playhead-overlay">
+        <div className="timeline-row-label" />
+        <div className="timeline-playhead-area">
+          <div
+            className="timeline-playhead"
+            style={{ left: `${playheadPosition}%` }}
+            onMouseDown={handlePlayheadMouseDown}
+          />
+        </div>
+      </div>
+
       {/* Clip track */}
-      <div className="timeline-track clip-track" ref={trackRef}>
-        {/* Playhead */}
-        <div
-          className="timeline-playhead"
-          style={{ left: `${playheadPosition}%` }}
-          onMouseDown={handlePlayheadMouseDown}
-        />
+      <div className="timeline-track clip-track">
+        <div className="timeline-row-label">
+          <span>Video</span>
+        </div>
+        <div className="timeline-row-content" ref={trackRef}>
+          {clips.map((clip, index) => {
+            const width = getClipWidth(clip);
+            const isSelected = store.selectedClipIds.includes(clip.id);
+            const thumbnails = store.clipThumbnails.get(clip.id);
+            const isLastClip = index === clips.length - 1;
 
-        {clips.map((clip, index) => {
-          const width = getClipWidth(clip);
-          const isSelected = store.selectedClipIds.includes(clip.id);
-          const thumbnails = store.clipThumbnails.get(clip.id);
-          const isLastClip = index === clips.length - 1;
-
-          return (
-            <div
-              key={clip.id}
-              className="timeline-clip-wrapper"
-              style={{ width: `${width}%` }}
-            >
+            return (
               <div
-                className={`timeline-clip ${isSelected ? "selected" : ""}`}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleClipClick(e, clip.id);
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (!store.selectedClipIds.includes(clip.id)) {
-                    store.selectClip(clip.id, "single");
-                  }
-                  setContextMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    type: "clip",
-                    id: clip.id,
-                    splitEnabled: store.canSplit(),
-                  });
-                }}
-                title={`${clip.sourcePath.split("/").pop()} (${Math.round(clip.originalDuration - clip.trimStart - clip.trimEnd)}ms)`}
+                key={clip.id}
+                className="timeline-clip-wrapper"
+                style={{ width: `${width}%` }}
               >
-                {/* Thumbnail strip */}
-                {thumbnails && thumbnails.length > 0 && (
-                  <div className="clip-thumbnails">
-                    {thumbnails.slice(0, 5).map((url, i) => (
-                      <img key={i} src={url} alt="" className="clip-thumb" />
-                    ))}
-                  </div>
-                )}
-                {!thumbnails && (
-                  <div className="clip-label">
-                    {clip.sourcePath.split("/").pop()?.slice(0, 12) ?? "clip"}
+                <div
+                  className={`timeline-clip ${isSelected ? "selected" : ""}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleClipClick(e, clip.id);
+                  }}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    if (!store.selectedClipIds.includes(clip.id)) {
+                      store.selectClip(clip.id, "single");
+                    }
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      type: "clip",
+                      id: clip.id,
+                      splitEnabled: store.canSplit(),
+                    });
+                  }}
+                  title={`${clip.sourcePath.split("/").pop()} (${Math.round(clip.originalDuration - clip.trimStart - clip.trimEnd)}ms)`}
+                >
+                  {/* Thumbnail strip */}
+                  {thumbnails && thumbnails.length > 0 && (
+                    <div className="clip-thumbnails">
+                      {thumbnails.slice(0, 5).map((url, i) => (
+                        <img key={i} src={url} alt="" className="clip-thumb" />
+                      ))}
+                    </div>
+                  )}
+                  {!thumbnails && (
+                    <div className="clip-label">
+                      {clip.sourcePath.split("/").pop()?.slice(0, 12) ?? "clip"}
+                    </div>
+                  )}
+                </div>
+
+                {/* Transition indicator between clips */}
+                {!isLastClip && (
+                  <div
+                    className={`transition-indicator ${clip.transition ? "has-transition" : ""}`}
+                    onClick={(e) => handleTransitionClick(e, clip.id)}
+                    title={
+                      clip.transition
+                        ? `${clip.transition.type} (${clip.transition.duration}ms) - click to change`
+                        : "Click to add transition"
+                    }
+                  >
+                    {clip.transition
+                      ? clip.transition.type[0].toUpperCase()
+                      : "+"}
                   </div>
                 )}
               </div>
-
-              {/* Transition indicator between clips */}
-              {!isLastClip && (
-                <div
-                  className={`transition-indicator ${clip.transition ? "has-transition" : ""}`}
-                  onClick={(e) => handleTransitionClick(e, clip.id)}
-                  title={
-                    clip.transition
-                      ? `${clip.transition.type} (${clip.transition.duration}ms) - click to change`
-                      : "Click to add transition"
-                  }
-                >
-                  {clip.transition
-                    ? clip.transition.type[0].toUpperCase()
-                    : "+"}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
 
       {/* Audio tracks from bundle clips */}
@@ -344,38 +354,43 @@ export function Timeline() {
       {/* Text overlay track */}
       {overlays.length > 0 && (
         <div className="timeline-track overlay-track">
-          {overlays.map((overlay) => {
-            const left =
-              totalDuration > 0 ? (overlay.startTime / totalDuration) * 100 : 0;
-            const width =
-              totalDuration > 0
-                ? ((overlay.endTime - overlay.startTime) / totalDuration) * 100
-                : 0;
-            const isSelected = store.selectedOverlayId === overlay.id;
+          <div className="timeline-row-label">
+            <span>Text</span>
+          </div>
+          <div className="timeline-row-content" style={{ position: 'relative' }}>
+            {overlays.map((overlay) => {
+              const left =
+                totalDuration > 0 ? (overlay.startTime / totalDuration) * 100 : 0;
+              const width =
+                totalDuration > 0
+                  ? ((overlay.endTime - overlay.startTime) / totalDuration) * 100
+                  : 0;
+              const isSelected = store.selectedOverlayId === overlay.id;
 
-            return (
-              <div
-                key={overlay.id}
-                className={`timeline-overlay ${isSelected ? "selected" : ""}`}
-                style={{ left: `${left}%`, width: `${width}%` }}
-                onClick={() => handleOverlayClick(overlay.id)}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setContextMenu({
-                    x: e.clientX,
-                    y: e.clientY,
-                    type: "overlay",
-                    id: overlay.id,
-                    splitEnabled: false,
-                  });
-                }}
-                title={`"${overlay.text}" (${Math.round(overlay.startTime)}ms - ${Math.round(overlay.endTime)}ms)`}
-              >
-                <span className="overlay-text-label">{overlay.text}</span>
-              </div>
-            );
-          })}
+              return (
+                <div
+                  key={overlay.id}
+                  className={`timeline-overlay ${isSelected ? "selected" : ""}`}
+                  style={{ left: `${left}%`, width: `${width}%` }}
+                  onClick={() => handleOverlayClick(overlay.id)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    setContextMenu({
+                      x: e.clientX,
+                      y: e.clientY,
+                      type: "overlay",
+                      id: overlay.id,
+                      splitEnabled: false,
+                    });
+                  }}
+                  title={`"${overlay.text}" (${Math.round(overlay.startTime)}ms - ${Math.round(overlay.endTime)}ms)`}
+                >
+                  <span className="overlay-text-label">{overlay.text}</span>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
       {/* Context menu */}
