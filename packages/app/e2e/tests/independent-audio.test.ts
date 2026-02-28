@@ -720,4 +720,110 @@ test.describe('Independent audio tracks', () => {
     const audioTrackRows = page.locator('.audio-track-row.independent')
     await expect(audioTrackRows).toHaveCount(0)
   })
+
+  // ==================== Mixer Integration ====================
+
+  test.describe('Mixer integration', () => {
+    test('Mixer button is visible when independent audio tracks exist', async ({ page }) => {
+      await setupEditorWithAudio(page)
+
+      const mixerBtn = page.locator('.editor-mixer-btn')
+      await expect(mixerBtn).toBeVisible()
+    })
+
+    test('Mixer window shows independent audio track labels', async ({ electronApp, page }) => {
+      await setupEditorWithAudio(page)
+
+      // Open mixer
+      await page.locator('.editor-mixer-btn').click()
+      await page.waitForTimeout(1000)
+
+      // Get mixer window
+      const windows = electronApp.windows()
+      const mixerPage = windows.find(w => w !== page)
+      expect(mixerPage).toBeTruthy()
+
+      if (mixerPage) {
+        // Wait for mixer to load
+        await mixerPage.locator('.mixer-window-tracks').waitFor({ state: 'visible', timeout: 5000 })
+
+        // Check that independent audio track labels appear
+        const labels = mixerPage.locator('.mixer-window-track-label')
+        const texts = await labels.allTextContents()
+        expect(texts.some(t => t.includes('BGM'))).toBe(true)
+
+        // Close mixer
+        await mixerPage.close()
+      }
+    })
+
+    test('Mixer volume change updates store for independent audio track', async ({ electronApp, page }) => {
+      await setupEditorWithAudio(page)
+
+      // Open mixer
+      await page.locator('.editor-mixer-btn').click()
+      await page.waitForTimeout(1000)
+
+      const windows = electronApp.windows()
+      const mixerPage = windows.find(w => w !== page)
+      expect(mixerPage).toBeTruthy()
+
+      if (mixerPage) {
+        await mixerPage.locator('.mixer-window-tracks').waitFor({ state: 'visible', timeout: 5000 })
+
+        // Find the volume slider for the BGM track and change it
+        const volumeSliders = mixerPage.locator('.mixer-window-volume')
+        const sliderCount = await volumeSliders.count()
+
+        if (sliderCount > 0) {
+          // Change volume of the first track (BGM) to 50%
+          await volumeSliders.first().fill('50')
+          await page.waitForTimeout(500)
+
+          // Verify the store was updated
+          const volume = await page.evaluate(() => {
+            const store = (window as any).__editorStore
+            return store.getState().project.independentAudioTracks[0]?.volume
+          })
+          expect(volume).toBeCloseTo(0.5, 1)
+        }
+
+        await mixerPage.close()
+      }
+    })
+
+    test('Mixer mute button toggles mute for independent audio track', async ({ electronApp, page }) => {
+      await setupEditorWithAudio(page)
+
+      // Open mixer
+      await page.locator('.editor-mixer-btn').click()
+      await page.waitForTimeout(1000)
+
+      const windows = electronApp.windows()
+      const mixerPage = windows.find(w => w !== page)
+      expect(mixerPage).toBeTruthy()
+
+      if (mixerPage) {
+        await mixerPage.locator('.mixer-window-tracks').waitFor({ state: 'visible', timeout: 5000 })
+
+        // Click mute button for the first track
+        const muteButtons = mixerPage.locator('.mixer-window-mute-btn')
+        const btnCount = await muteButtons.count()
+
+        if (btnCount > 0) {
+          await muteButtons.first().click()
+          await page.waitForTimeout(500)
+
+          // Verify the store was updated
+          const muted = await page.evaluate(() => {
+            const store = (window as any).__editorStore
+            return store.getState().project.independentAudioTracks[0]?.muted
+          })
+          expect(muted).toBe(true)
+        }
+
+        await mixerPage.close()
+      }
+    })
+  })
 })
