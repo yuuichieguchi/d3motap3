@@ -115,10 +115,10 @@ export function openMixerWindow(): void {
   }
 
   mixerWindow = new BrowserWindow({
-    width: 400,
-    height: 500,
-    minWidth: 300,
-    minHeight: 300,
+    width: 300,
+    height: 280,
+    minWidth: 200,
+    minHeight: 200,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
