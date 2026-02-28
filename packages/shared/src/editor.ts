@@ -1,3 +1,5 @@
+import type { AudioTrack, MixerSettings } from './project-bundle'
+
 export interface EditorProject {
   clips: EditorClip[]
   textOverlays: TextOverlay[]
@@ -16,6 +18,9 @@ export interface EditorClip {
     type: 'fade' | 'dissolve' | 'wipe_left' | 'wipe_right'
     duration: number // ms
   }
+  bundlePath?: string
+  audioTracks?: AudioTrack[]
+  mixerSettings?: MixerSettings
 }
 
 export interface TextOverlay {

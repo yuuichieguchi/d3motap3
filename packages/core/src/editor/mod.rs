@@ -277,6 +277,12 @@ pub struct EditorClip {
     pub trim_end: f64,
     pub order: u32,
     pub transition: Option<Transition>,
+    #[serde(default)]
+    pub bundle_path: Option<String>,
+    #[serde(default)]
+    pub audio_tracks: Option<Vec<AudioTrack>>,
+    #[serde(default)]
+    pub mixer_settings: Option<MixerSettings>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -296,6 +302,75 @@ pub struct TextOverlay {
     pub y: f64,
     pub font_size: u32,
     pub color: String,
+}
+
+// ---------------------------------------------------------------------------
+// Audio bundle data structures
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioTrack {
+    pub id: String,
+    #[serde(rename = "type")]
+    pub track_type: String, // "system" | "mic"
+    pub label: String,
+    pub clips: Vec<AudioClip>,
+    pub format: AudioFormat,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioClip {
+    pub id: String,
+    pub filename: String,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub offset_ms: f64,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioFormat {
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub encoding: String, // "f32le"
+    pub bytes_per_sample: u32,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MixerSettings {
+    pub tracks: Vec<TrackMixerSetting>,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackMixerSetting {
+    pub track_id: String,
+    pub volume: f64, // 0.0 - 1.0
+    pub muted: bool,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3mProject {
+    pub version: u32,
+    pub created_at: String,
+    pub video: D3mVideo,
+    pub audio_tracks: Vec<AudioTrack>,
+    pub mixer: MixerSettings,
+}
+
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct D3mVideo {
+    pub filename: String,
+    pub duration_ms: f64,
+    pub width: u32,
+    pub height: u32,
+    pub fps: f64,
+    pub codec: String,
 }
 
 // ---------------------------------------------------------------------------
@@ -845,6 +920,9 @@ mod tests {
                 trim_end: 2000.0,
                 order: 0,
                 transition: None,
+                bundle_path: None,
+                audio_tracks: None,
+                mixer_settings: None,
             }],
             text_overlays: vec![],
             output_width: 1920,
@@ -871,6 +949,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 0,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -880,6 +961,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -908,6 +992,9 @@ mod tests {
                         transition_type: "fade".to_string(),
                         duration: 500.0,
                     }),
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -917,6 +1004,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -943,6 +1033,9 @@ mod tests {
                 trim_end: 0.0,
                 order: 0,
                 transition: None,
+                bundle_path: None,
+                audio_tracks: None,
+                mixer_settings: None,
             }],
             text_overlays: vec![TextOverlay {
                 id: "t1".to_string(),
@@ -994,6 +1087,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c1".to_string(),
@@ -1003,6 +1099,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 0,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -1176,6 +1275,9 @@ mod tests {
                 trim_end: 2000.0,
                 order: 0,
                 transition: None,
+                bundle_path: None,
+                audio_tracks: None,
+                mixer_settings: None,
             }],
             text_overlays: vec![],
             output_width: 1920,
@@ -1219,6 +1321,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 0,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -1228,6 +1333,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -1277,6 +1385,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 0,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -1286,6 +1397,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -1333,6 +1447,9 @@ mod tests {
                         transition_type: "fade".to_string(),
                         duration: 500.0,
                     }),
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -1342,6 +1459,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -1375,6 +1495,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 0,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -1384,6 +1507,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
@@ -1420,6 +1546,9 @@ mod tests {
                         transition_type: "fade".to_string(),
                         duration: 500.0,
                     }),
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
                 EditorClip {
                     id: "c2".to_string(),
@@ -1429,6 +1558,9 @@ mod tests {
                     trim_end: 0.0,
                     order: 1,
                     transition: None,
+                    bundle_path: None,
+                    audio_tracks: None,
+                    mixer_settings: None,
                 },
             ],
             text_overlays: vec![],
