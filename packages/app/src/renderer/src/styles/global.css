@@ -1801,3 +1801,148 @@ input::placeholder,
 textarea::placeholder {
   color: rgba(255, 255, 255, 0.35);
 }
+
+/* =============================================
+   Mixer panel
+   ============================================= */
+
+.mixer-panel {
+  padding: 12px 16px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.mixer-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.5);
+  margin-bottom: 8px;
+}
+
+.mixer-tracks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.mixer-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.mixer-track-label {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.7);
+  min-width: 90px;
+}
+
+.mixer-mute-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 4px;
+  font-size: 14px;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.mixer-mute-btn:hover {
+  opacity: 1;
+}
+
+.mixer-mute-btn.muted {
+  opacity: 0.4;
+}
+
+.mixer-volume-slider {
+  flex: 1;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 2px;
+  outline: none;
+}
+
+.mixer-volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #6366f1;
+  cursor: pointer;
+}
+
+.mixer-volume-slider:disabled {
+  opacity: 0.3;
+}
+
+.mixer-volume-value {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* =============================================
+   Audio track rows in timeline
+   ============================================= */
+
+.audio-track-row {
+  display: flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 0 8px;
+}
+
+.audio-track-row .timeline-row-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.5);
+  min-width: 100px;
+}
+
+.audio-track-icon {
+  font-size: 12px;
+}
+
+.audio-track-row .timeline-row-content {
+  flex: 1;
+  position: relative;
+  height: 20px;
+}
+
+.audio-track-bar {
+  height: 100%;
+  border-radius: 3px;
+  display: flex;
+  overflow: hidden;
+}
+
+.audio-track-bar.system {
+  background: rgba(99, 102, 241, 0.4);
+  border: 1px solid rgba(99, 102, 241, 0.6);
+}
+
+.audio-track-bar.mic {
+  background: rgba(34, 197, 94, 0.4);
+  border: 1px solid rgba(34, 197, 94, 0.6);
+}
+
+.audio-track-bar.muted {
+  opacity: 0.3;
+}
+
+.audio-clip-segment {
+  height: 100%;
+  border-right: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.audio-clip-segment:last-child {
+  border-right: none;
+}

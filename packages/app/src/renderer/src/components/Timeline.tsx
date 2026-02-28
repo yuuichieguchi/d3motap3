@@ -229,6 +229,48 @@ export function Timeline() {
         })}
       </div>
 
+      {/* Audio tracks from bundle clips */}
+      {store.project.clips.some((c) => c.audioTracks) && (
+        <>
+          {store.project.clips
+            .filter((c) => c.audioTracks && c.audioTracks.length > 0)
+            .flatMap((c) =>
+              c.audioTracks!.map((track) => {
+                const clipDuration = c.originalDuration - c.trimStart - c.trimEnd;
+                const width = totalDuration > 0 ? (clipDuration / totalDuration) * 100 : 0;
+                const isMuted = c.mixerSettings?.tracks.find((t) => t.trackId === track.id)?.muted;
+
+                return (
+                  <div key={`${c.id}-${track.id}`} className="timeline-row audio-track-row">
+                    <div className="timeline-row-label">
+                      <span className="audio-track-icon">{isMuted ? '🔇' : '🔊'}</span>
+                      <span>{track.label}</span>
+                    </div>
+                    <div className="timeline-row-content">
+                      <div
+                        className={`audio-track-bar ${track.type} ${isMuted ? 'muted' : ''}`}
+                        style={{ width: `${width}%` }}
+                      >
+                        {track.clips.length > 1 && track.clips.map((clip) => {
+                          const clipWidth = ((clip.endMs - clip.startMs) / clipDuration) * 100;
+                          return (
+                            <div
+                              key={clip.id}
+                              className="audio-clip-segment"
+                              style={{ width: `${clipWidth}%` }}
+                              title={`${clip.filename}`}
+                            />
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+        </>
+      )}
+
       {/* Text overlay track */}
       {overlays.length > 0 && (
         <div className="timeline-track overlay-track">

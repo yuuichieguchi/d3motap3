@@ -2,6 +2,7 @@ import { useRef, useCallback, useEffect } from 'react'
 import { useEditorStore, consumeUserSeek } from '../store/editor'
 import { useAudioPlayback } from '../hooks/useAudioPlayback'
 import { Timeline } from './Timeline'
+import { Mixer } from './Mixer'
 import { TextOverlayEditor } from './TextOverlayEditor'
 
 export function EditorView() {
@@ -220,6 +221,9 @@ export function EditorView() {
 
       {/* Timeline */}
       <Timeline />
+
+      {/* Mixer */}
+      <Mixer />
 
       {/* Text overlay editor */}
       <TextOverlayEditor />
