@@ -43,6 +43,13 @@ export interface VideoMetadata {
   codec: string
 }
 
+export interface PcmFormat {
+  sampleRate: number
+  channels: number
+  encoding: string       // 'f32le'
+  bytesPerSample: number // 4
+}
+
 export interface IndependentAudioClip {
   id: string
   sourcePath: string           // absolute path to audio file
@@ -50,6 +57,7 @@ export interface IndependentAudioClip {
   trimStart: number            // ms (head trim)
   trimEnd: number              // ms (tail trim)
   timelineStartMs: number      // absolute position on timeline
+  pcmFormat?: PcmFormat
 }
 
 export interface IndependentAudioTrack {

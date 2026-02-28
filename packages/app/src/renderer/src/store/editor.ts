@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject, IndependentAudioTrack, IndependentAudioClip } from '@d3motap3/shared'
+import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject, IndependentAudioTrack, IndependentAudioClip, PcmFormat } from '@d3motap3/shared'
 
 let nextClipId = 1
 let nextOverlayId = 1
@@ -30,6 +30,7 @@ export interface AudioClipboardEntry {
   trimStart: number
   trimEnd: number
   timelineStartMs: number
+  pcmFormat?: PcmFormat
 }
 
 interface EditorState {
@@ -196,13 +197,53 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         audioTracks,
         mixerSettings,
       }
+      // Promote bundle audioTracks to independentAudioTracks
+      const promotedTracks: IndependentAudioTrack[] = []
+      if (audioTracks) {
+        for (const track of audioTracks) {
+          const promotedClips: IndependentAudioClip[] = track.clips.map((ac) => ({
+            id: `audio-clip-${nextAudioClipId++}`,
+            sourcePath: `${bundlePath}/tracks/${ac.filename}`,
+            originalDuration: ac.endMs - ac.startMs,
+            trimStart: 0,
+            trimEnd: 0,
+            timelineStartMs: ac.startMs,
+            pcmFormat: {
+              sampleRate: track.format.sampleRate,
+              channels: track.format.channels,
+              encoding: track.format.encoding,
+              bytesPerSample: track.format.bytesPerSample,
+            },
+          }))
+          const mixerTrack = mixerSettings?.tracks.find((s) => s.trackId === track.id)
+          promotedTracks.push({
+            id: `audio-track-${nextAudioTrackId++}`,
+            label: track.label,
+            clips: promotedClips,
+            volume: mixerTrack?.volume ?? 1,
+            muted: mixerTrack?.muted ?? false,
+          })
+        }
+      }
+
+      // Remove audioTracks and mixerSettings from clip (promoted to independent)
+      const clipWithoutBundleAudio: EditorClip = {
+        ...newClip,
+        audioTracks: undefined,
+        mixerSettings: undefined,
+      }
+
       set((state) => {
         const newMetadata = new Map(state.clipMetadata)
         newMetadata.set(clipId, meta)
         return {
           project: {
             ...state.project,
-            clips: [...state.project.clips, newClip],
+            clips: [...state.project.clips, clipWithoutBundleAudio],
+            independentAudioTracks: [
+              ...state.project.independentAudioTracks,
+              ...promotedTracks,
+            ],
           },
           clipMetadata: newMetadata,
         }
@@ -634,6 +675,12 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           trim_start: c.trimStart,
           trim_end: c.trimEnd,
           timeline_start_ms: c.timelineStartMs,
+          pcm_format: c.pcmFormat ? {
+            sample_rate: c.pcmFormat.sampleRate,
+            channels: c.pcmFormat.channels,
+            encoding: c.pcmFormat.encoding,
+            bytes_per_sample: c.pcmFormat.bytesPerSample,
+          } : undefined,
         })),
         volume: t.volume,
         muted: t.muted,
@@ -750,44 +797,39 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       const state = get()
       state.setPlaying(false)
 
-      // Find the active bundle clip and update its mic track
-      const bundleClip = state.project.clips.find((c) => c.bundlePath)
-      if (!bundleClip || !result.micPath || !bundleClip.audioTracks) return
+      // Find the promoted mic track in independent audio tracks
+      const micTrack = state.project.independentAudioTracks.find(
+        (t) => t.label.toLowerCase().includes('mic')
+      )
+      if (!micTrack || !result.micPath) return
 
       const punchStartMs = state.punchInStartMs
       const punchEndMs = state.currentTimeMs
+      const punchDuration = punchEndMs - punchStartMs
 
-      const micTrack = bundleClip.audioTracks.find((t) => t.type === 'mic')
-      if (!micTrack) return
-
-      // Extract just the filename from the full path
-      const filename = result.micPath.split('/').pop() || result.micPath
-
-      const punchClip = {
-        id: crypto.randomUUID(),
-        filename,
-        startMs: punchStartMs,
-        endMs: punchEndMs,
-        offsetMs: 0,
+      const punchClip: IndependentAudioClip = {
+        id: `audio-clip-${nextAudioClipId++}`,
+        sourcePath: result.micPath,
+        originalDuration: punchDuration,
+        trimStart: 0,
+        trimEnd: 0,
+        timelineStartMs: punchStartMs,
+        pcmFormat: {
+          sampleRate: result.sampleRate,
+          channels: result.channels,
+          encoding: 'f32le',
+          bytesPerSample: 4,
+        },
       }
 
-      // Update the mic track's clips in the store
       set((s) => ({
         project: {
           ...s.project,
-          clips: s.project.clips.map((c) => {
-            if (c.id !== bundleClip.id || !c.audioTracks) return c
-            return {
-              ...c,
-              audioTracks: c.audioTracks.map((t) => {
-                if (t.type !== 'mic') return t
-                return {
-                  ...t,
-                  clips: [...t.clips, punchClip],
-                }
-              }),
-            }
-          }),
+          independentAudioTracks: s.project.independentAudioTracks.map((t) =>
+            t.id === micTrack.id
+              ? { ...t, clips: [...t.clips, punchClip] }
+              : t
+          ),
         },
       }))
     } catch (err) {
@@ -943,7 +985,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
                   ...t,
                   clips: t.clips.map((c) =>
                     c.id === clipId
-                      ? { ...c, sourcePath: newSourcePath, originalDuration: durationMs, trimStart: 0, trimEnd: 0 }
+                      ? { ...c, sourcePath: newSourcePath, originalDuration: durationMs, trimStart: 0, trimEnd: 0, pcmFormat: undefined }
                       : c
                   ),
                 }
@@ -1017,6 +1059,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
             trimStart: clip.trimStart,
             trimEnd: clip.trimEnd,
             timelineStartMs: clip.timelineStartMs,
+            pcmFormat: clip.pcmFormat,
           })
         }
       }
@@ -1068,6 +1111,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         trimStart: entry.trimStart,
         trimEnd: entry.trimEnd,
         timelineStartMs: entry.timelineStartMs,
+        pcmFormat: entry.pcmFormat,
       }
     })
 

@@ -218,6 +218,10 @@ export function EditorView() {
             useEditorStore.getState().pasteClips()
           }
           break
+        case 'b':
+          e.preventDefault()
+          useEditorStore.getState().splitAtPlayhead()
+          break
       }
     }
     window.addEventListener('keydown', handler)
