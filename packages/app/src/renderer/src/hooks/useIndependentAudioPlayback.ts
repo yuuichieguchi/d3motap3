@@ -1,5 +1,5 @@
 import { useRef, useEffect, useCallback, useState, useMemo } from 'react'
-import type { IndependentAudioTrack } from '@d3motap3/shared'
+import type { IndependentAudioTrack, IndependentAudioClip } from '@d3motap3/shared'
 
 interface AudioClipState {
   buffer: AudioBuffer | null
@@ -32,7 +32,7 @@ export function useIndependentAudioPlayback({
 
   // Stable key that only changes when clip IDs/paths change (not volume/mute)
   const clipsKey = useMemo(() =>
-    tracks.flatMap(t => t.clips.map(c => `${t.id}:${c.id}:${c.sourcePath}`)).join('|'),
+    tracks.flatMap(t => t.clips.map(c => `${t.id}:${c.id}:${c.sourcePath}:${c.pcmFormat ? 'pcm' : 'media'}`)).join('|'),
     [tracks]
   )
 
@@ -75,7 +75,9 @@ export function useIndependentAudioPlayback({
           if (trackState.clips.has(clip.id)) continue
 
           try {
-            const url = `media://local${clip.sourcePath}`
+            const url = clip.pcmFormat
+              ? `audio://local${clip.sourcePath}?sr=${clip.pcmFormat.sampleRate}&ch=${clip.pcmFormat.channels}`
+              : `media://local${clip.sourcePath}`
             const response = await fetch(url)
             if (cancelled) return
             if (!response.ok) {

@@ -439,6 +439,14 @@ pub struct IndependentAudioTrackDef {
 }
 
 #[derive(Debug, serde::Deserialize)]
+pub struct PcmFormatDef {
+    pub sample_rate: u32,
+    pub channels: u32,
+    pub encoding: String,
+    pub bytes_per_sample: u32,
+}
+
+#[derive(Debug, serde::Deserialize)]
 pub struct IndependentAudioClipDef {
     pub id: String,
     pub source_path: String,
@@ -446,6 +454,8 @@ pub struct IndependentAudioClipDef {
     pub trim_start: f64,
     pub trim_end: f64,
     pub timeline_start_ms: f64,
+    #[serde(default)]
+    pub pcm_format: Option<PcmFormatDef>,
 }
 
 // ---------------------------------------------------------------------------
@@ -831,8 +841,21 @@ fn build_independent_audio_filters(
         }
 
         for clip in &track.clips {
-            // Add audio file as input
-            inputs.extend_from_slice(&["-i".to_string(), clip.source_path.clone()]);
+            // Add audio file as input (with PCM format flags if needed)
+            if let Some(ref fmt) = clip.pcm_format {
+                inputs.extend_from_slice(&[
+                    "-f".to_string(),
+                    fmt.encoding.clone(),
+                    "-ar".to_string(),
+                    fmt.sample_rate.to_string(),
+                    "-ac".to_string(),
+                    fmt.channels.to_string(),
+                    "-i".to_string(),
+                    clip.source_path.clone(),
+                ]);
+            } else {
+                inputs.extend_from_slice(&["-i".to_string(), clip.source_path.clone()]);
+            }
 
             let label = format!("ia{}", current_input);
             let trim_start_s = clip.trim_start / 1000.0;
