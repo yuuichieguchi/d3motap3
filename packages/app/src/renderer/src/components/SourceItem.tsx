@@ -45,6 +45,12 @@ export function SourceItem({ id, name, width, height, isActive, sourceType, inde
     (e: React.KeyboardEvent<HTMLDivElement>) => {
       e.preventDefault()
 
+      if (e.key === 'Escape') {
+        setTerminalFocused(false)
+        ;(e.currentTarget as HTMLElement).blur()
+        return
+      }
+
       const specialSequence = SPECIAL_KEY_MAP[e.key]
       if (specialSequence) {
         window.api.invoke('terminal:write-input', id, encodeBytes(specialSequence))

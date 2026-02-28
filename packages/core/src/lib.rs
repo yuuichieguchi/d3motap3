@@ -303,6 +303,8 @@ pub struct WindowInfoJs {
     pub title: String,
     pub app_name: String,
     pub is_on_screen: bool,
+    pub width: u32,
+    pub height: u32,
 }
 
 #[napi]
@@ -316,6 +318,8 @@ pub fn list_windows() -> napi::Result<Vec<WindowInfoJs>> {
                     title: w.title,
                     app_name: w.app_name,
                     is_on_screen: w.is_on_screen,
+                    width: w.width,
+                    height: w.height,
                 })
                 .collect()
         })

@@ -47,6 +47,8 @@ export interface WindowInfoJs {
   title: string
   appName: string
   isOnScreen: boolean
+  width: number
+  height: number
 }
 export declare function listWindows(): Array<WindowInfoJs>
 export interface WebcamInfoJs {
