@@ -62,6 +62,7 @@ export function MixerWindow() {
                   window.api.invoke('mixer:set-volume', state.clipId, setting.trackId, Number(e.target.value) / 100).catch(() => {})
                 }}
                 disabled={setting.muted}
+                orient="vertical"
               />
               <span className="mixer-window-volume-value">{Math.round(setting.volume * 100)}%</span>
             </div>
