@@ -84,6 +84,42 @@ pub fn editor_probe(path: String) -> Result<VideoMetadata, String> {
     parse_probe_json(&json)
 }
 
+/// Probe an audio file and return its duration in milliseconds.
+pub fn editor_probe_audio(path: String) -> Result<u64, String> {
+    let ffprobe_path = find_ffprobe()?;
+
+    let output = Command::new(&ffprobe_path)
+        .args([
+            "-v", "quiet",
+            "-print_format", "json",
+            "-show_format",
+            &path,
+        ])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|e| format!("Failed to execute ffprobe: {}", e))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("ffprobe failed: {}", stderr));
+    }
+
+    let json: serde_json::Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Failed to parse ffprobe JSON: {}", e))?;
+
+    let duration_str = json["format"]["duration"]
+        .as_str()
+        .ok_or_else(|| "No duration found in audio file".to_string())?;
+
+    let duration_secs: f64 = duration_str
+        .parse()
+        .map_err(|e| format!("Failed to parse duration '{}': {}", duration_str, e))?;
+
+    Ok((duration_secs * 1000.0).round() as u64)
+}
+
 /// Read and return a `.d3m` project bundle manifest.
 pub fn editor_probe_bundle(bundle_path: String) -> Result<String, String> {
     let project_path = std::path::Path::new(&bundle_path).join("project.json");
@@ -278,6 +314,8 @@ pub struct EditorProject {
     pub clips: Vec<EditorClip>,
     #[serde(default)]
     pub text_overlays: Vec<TextOverlay>,
+    #[serde(default)]
+    pub independent_audio_tracks: Vec<IndependentAudioTrackDef>,
     pub output_width: u32,
     pub output_height: u32,
 }
@@ -385,6 +423,29 @@ pub struct D3mVideo {
     pub height: u32,
     pub fps: f64,
     pub codec: String,
+}
+
+// ---------------------------------------------------------------------------
+// Independent audio tracks
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, serde::Deserialize)]
+pub struct IndependentAudioTrackDef {
+    pub id: String,
+    pub label: String,
+    pub clips: Vec<IndependentAudioClipDef>,
+    pub volume: f64,
+    pub muted: bool,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct IndependentAudioClipDef {
+    pub id: String,
+    pub source_path: String,
+    pub original_duration: f64,
+    pub trim_start: f64,
+    pub trim_end: f64,
+    pub timeline_start_ms: f64,
 }
 
 // ---------------------------------------------------------------------------
@@ -750,6 +811,86 @@ fn build_bundle_audio_filter(
 }
 
 // ---------------------------------------------------------------------------
+// Independent audio filter builder
+// ---------------------------------------------------------------------------
+
+/// Build FFmpeg audio filters for independent audio tracks.
+/// Returns `(filter_string, output_label, extra_inputs)` or None if no active clips.
+fn build_independent_audio_filters(
+    project: &EditorProject,
+    input_index_start: usize,
+) -> Option<(String, String, Vec<String>)> {
+    let mut inputs = Vec::new();
+    let mut filters = Vec::new();
+    let mut mix_labels = Vec::new();
+    let mut current_input = input_index_start;
+
+    for track in &project.independent_audio_tracks {
+        if track.muted || track.clips.is_empty() {
+            continue;
+        }
+
+        for clip in &track.clips {
+            // Add audio file as input
+            inputs.extend_from_slice(&["-i".to_string(), clip.source_path.clone()]);
+
+            let label = format!("ia{}", current_input);
+            let trim_start_s = clip.trim_start / 1000.0;
+            let trim_end_s = clip.trim_end / 1000.0;
+            let original_duration_s = clip.original_duration / 1000.0;
+            let effective_end_s = original_duration_s - trim_end_s;
+            let delay_ms = clip.timeline_start_ms as i64;
+
+            let mut filter_parts = vec![format!(
+                "[{}:a]atrim=start={:.3}:end={:.3}",
+                current_input, trim_start_s, effective_end_s
+            )];
+            filter_parts.push("asetpts=PTS-STARTPTS".to_string());
+            filter_parts.push("aresample=48000".to_string());
+            filter_parts.push("aformat=channel_layouts=stereo".to_string());
+
+            if delay_ms > 0 {
+                filter_parts.push(format!("adelay={}|{}", delay_ms, delay_ms));
+            }
+
+            if (track.volume - 1.0).abs() > 0.001 {
+                filter_parts.push(format!("volume={:.3}", track.volume));
+            }
+
+            filters.push(format!("{}[{}]", filter_parts.join(","), label));
+            mix_labels.push(format!("[{}]", label));
+            current_input += 1;
+        }
+    }
+
+    if mix_labels.is_empty() {
+        return None;
+    }
+
+    let output_label = "ia_mix".to_string();
+
+    if mix_labels.len() == 1 {
+        // Single clip - rename the label
+        let last_filter = filters.last_mut().expect("filters should not be empty");
+        let old_label = mix_labels[0].trim_matches(|c| c == '[' || c == ']');
+        *last_filter = last_filter.replace(
+            &format!("[{}]", old_label),
+            &format!("[{}]", output_label),
+        );
+    } else {
+        // Multiple clips - mix them
+        filters.push(format!(
+            "{}amix=inputs={}:duration=longest[{}]",
+            mix_labels.join(""),
+            mix_labels.len(),
+            output_label,
+        ));
+    }
+
+    Some((filters.join(";"), output_label, inputs))
+}
+
+// ---------------------------------------------------------------------------
 // Export
 // ---------------------------------------------------------------------------
 
@@ -852,37 +993,63 @@ fn run_export(
         }
     }
 
+    // Build independent audio track filters.
+    let ind_audio_input_count = base_input_count + bundle_audio_inputs.len() / 8;
+    let ind_audio_result = build_independent_audio_filters(&project, ind_audio_input_count);
+    let mut ind_audio_inputs: Vec<String> = Vec::new();
+    let mut ind_audio_filter: Option<String> = None;
+    let mut ind_audio_label: Option<String> = None;
+
+    if let Some((filter, label, inputs)) = ind_audio_result {
+        ind_audio_inputs = inputs;
+        ind_audio_filter = Some(filter);
+        ind_audio_label = Some(label);
+    }
+
     // Compose the final filter_complex, appending bundle audio if present.
-    let final_filter = if !bundle_audio_filters.is_empty() {
+    let mut final_filter = if !bundle_audio_filters.is_empty() {
         format!("{};{}", fc.filter_complex, bundle_audio_filters.join(";"))
     } else {
         fc.filter_complex.clone()
     };
 
-    // Determine the audio output label: prefer bundle audio over embedded.
-    // If multiple bundle clips produce separate audio outputs, mix them via amix below.
-    let audio_map_label: Option<String> = if bundle_audio_labels.len() > 1 {
-        Some("[ba_final]".to_string())
-    } else if bundle_audio_labels.len() == 1 {
-        Some(format!("[{}]", bundle_audio_labels[0]))
-    } else {
-        fc.audio_output_label.clone()
-    };
+    // Append independent audio filters.
+    if let Some(ref iaf) = ind_audio_filter {
+        final_filter = format!("{};{}", final_filter, iaf);
+    }
 
-    // If multiple bundle audio outputs, append a final amix stage.
-    let final_filter = if bundle_audio_labels.len() > 1 {
-        let mix_inputs: String = bundle_audio_labels
-            .iter()
-            .map(|l| format!("[{}]", l))
-            .collect();
-        format!(
-            "{};{}amix=inputs={}:duration=longest[ba_final]",
+    // Collect all audio output labels.
+    let mut all_audio_labels: Vec<String> = Vec::new();
+
+    // Bundle audio labels.
+    for l in &bundle_audio_labels {
+        all_audio_labels.push(format!("[{}]", l));
+    }
+
+    // Embedded audio label from filter complex.
+    if let Some(ref embedded) = fc.audio_output_label {
+        all_audio_labels.push(embedded.clone());
+    }
+
+    // Independent audio label.
+    if let Some(ref ial) = ind_audio_label {
+        all_audio_labels.push(format!("[{}]", ial));
+    }
+
+    let audio_map_label: Option<String> = if all_audio_labels.len() > 1 {
+        // Mix all audio sources together.
+        let mix_inputs: String = all_audio_labels.join("");
+        final_filter = format!(
+            "{};{}amix=inputs={}:duration=longest[final_audio]",
             final_filter,
             mix_inputs,
-            bundle_audio_labels.len()
-        )
+            all_audio_labels.len()
+        );
+        Some("[final_audio]".to_string())
+    } else if all_audio_labels.len() == 1 {
+        Some(all_audio_labels[0].clone())
     } else {
-        final_filter
+        None
     };
 
     let mut args: Vec<String> = Vec::new();
@@ -895,6 +1062,9 @@ fn run_export(
 
     // Add bundle audio PCM inputs.
     args.extend(bundle_audio_inputs);
+
+    // Add independent audio file inputs.
+    args.extend(ind_audio_inputs);
 
     // filter_complex.
     args.extend(["-filter_complex".to_string(), final_filter]);
@@ -1130,6 +1300,7 @@ mod tests {
                 mixer_settings: None,
             }],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };
@@ -1172,6 +1343,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1280,
             output_height: 720,
         };
@@ -1215,6 +1387,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };
@@ -1252,6 +1425,7 @@ mod tests {
                 font_size: 48,
                 color: "#ffffff".to_string(),
             }],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };
@@ -1270,6 +1444,7 @@ mod tests {
         let project = EditorProject {
             clips: vec![],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };
@@ -1310,6 +1485,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1280,
             output_height: 720,
         };
@@ -1485,6 +1661,7 @@ mod tests {
                 mixer_settings: None,
             }],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };
@@ -1544,6 +1721,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1280,
             output_height: 720,
         };
@@ -1608,6 +1786,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1280,
             output_height: 720,
         };
@@ -1670,6 +1849,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };
@@ -1718,6 +1898,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1280,
             output_height: 720,
         };
@@ -1769,6 +1950,7 @@ mod tests {
                 },
             ],
             text_overlays: vec![],
+            independent_audio_tracks: vec![],
             output_width: 1920,
             output_height: 1080,
         };

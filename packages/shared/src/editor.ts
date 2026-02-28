@@ -3,6 +3,7 @@ import type { AudioTrack, MixerSettings } from './project-bundle'
 export interface EditorProject {
   clips: EditorClip[]
   textOverlays: TextOverlay[]
+  independentAudioTracks: IndependentAudioTrack[]
   outputWidth: number
   outputHeight: number
 }
@@ -40,6 +41,23 @@ export interface VideoMetadata {
   height: number
   fps: number
   codec: string
+}
+
+export interface IndependentAudioClip {
+  id: string
+  sourcePath: string           // absolute path to audio file
+  originalDuration: number     // ms (from probe)
+  trimStart: number            // ms (head trim)
+  trimEnd: number              // ms (tail trim)
+  timelineStartMs: number      // absolute position on timeline
+}
+
+export interface IndependentAudioTrack {
+  id: string
+  label: string                // "BGM", "SE", "Narration" etc
+  clips: IndependentAudioClip[]
+  volume: number               // 0-1
+  muted: boolean
 }
 
 export type EditorExportStatus =

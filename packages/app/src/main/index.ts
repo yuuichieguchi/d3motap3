@@ -115,10 +115,10 @@ export function openMixerWindow(): void {
   }
 
   mixerWindow = new BrowserWindow({
-    width: 300,
+    width: 400,
+    minWidth: 200,
     height: 260,
     useContentSize: true,
-    resizable: false,
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -157,6 +157,12 @@ const MEDIA_MIME: Record<string, string> = {
   '.webm': 'video/webm',
   '.avi': 'video/x-msvideo',
   '.mkv': 'video/x-matroska',
+  '.mp3': 'audio/mpeg',
+  '.wav': 'audio/wav',
+  '.m4a': 'audio/mp4',
+  '.aac': 'audio/aac',
+  '.ogg': 'audio/ogg',
+  '.flac': 'audio/flac',
 }
 
 app.whenReady().then(() => {

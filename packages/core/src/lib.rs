@@ -623,6 +623,13 @@ pub fn editor_probe(path: String) -> napi::Result<VideoMetadataJs> {
 }
 
 #[napi]
+pub fn editor_probe_audio(path: String) -> napi::Result<i64> {
+    editor::editor_probe_audio(path)
+        .map(|d| d as i64)
+        .map_err(|e| napi::Error::from_reason(e))
+}
+
+#[napi]
 pub fn editor_thumbnails(path: String, count: u32, width: u32) -> napi::Result<Vec<napi::bindgen_prelude::Buffer>> {
     editor::editor_thumbnails(path, count, width)
         .map(|thumbs| thumbs.into_iter().map(|t| t.into()).collect())

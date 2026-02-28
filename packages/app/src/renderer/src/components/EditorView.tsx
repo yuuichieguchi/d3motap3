@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { useEditorStore, consumeUserSeek } from '../store/editor'
 import { useAudioPlayback } from '../hooks/useAudioPlayback'
+import { useIndependentAudioPlayback } from '../hooks/useIndependentAudioPlayback'
 import { Timeline } from './Timeline'
 import { TextOverlayEditor } from './TextOverlayEditor'
 
@@ -8,6 +9,14 @@ export function EditorView() {
   const store = useEditorStore()
   const videoRef = useRef<HTMLVideoElement>(null)
   const currentSourcePathRef = useRef<string | null>(null)
+  const audioContextRef = useRef<AudioContext | null>(null)
+
+  const getSharedAudioContext = useCallback(() => {
+    if (!audioContextRef.current) {
+      audioContextRef.current = new AudioContext()
+    }
+    return audioContextRef.current
+  }, [])
   const playbackIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // Get the clip at the current playback position
@@ -46,6 +55,14 @@ export function EditorView() {
     bundlePath: activeBundle?.bundlePath,
     isPlaying: store.isPlaying,
     currentTimeMs: activeClipResult?.localTime ?? 0,
+  })
+
+  // Independent audio playback
+  useIndependentAudioPlayback({
+    audioContext: store.project.independentAudioTracks.length > 0 ? getSharedAudioContext() : null,
+    tracks: store.project.independentAudioTracks,
+    isPlaying: store.isPlaying,
+    currentTimeMs: store.currentTimeMs,
   })
 
   const isBundleClip = !!activeBundle
@@ -112,6 +129,8 @@ export function EditorView() {
     const s = useEditorStore.getState()
     if (s.selectedOverlayId) {
       s.removeTextOverlay(s.selectedOverlayId)
+    } else if (s.selectedAudioClipIds.length > 0) {
+      s.removeSelectedAudioClips()
     } else {
       s.removeSelectedClips()
     }
@@ -127,13 +146,25 @@ export function EditorView() {
 
       switch (action) {
         case 'copy':
-          useEditorStore.getState().copySelectedClips()
+          if (useEditorStore.getState().selectedAudioClipIds.length > 0) {
+            useEditorStore.getState().copySelectedAudioClips()
+          } else {
+            useEditorStore.getState().copySelectedClips()
+          }
           break
         case 'cut':
-          useEditorStore.getState().cutSelectedClips()
+          if (useEditorStore.getState().selectedAudioClipIds.length > 0) {
+            useEditorStore.getState().cutSelectedAudioClips()
+          } else {
+            useEditorStore.getState().cutSelectedClips()
+          }
           break
         case 'paste':
-          useEditorStore.getState().pasteClips()
+          if (useEditorStore.getState().clipboardAudioClips) {
+            useEditorStore.getState().pasteAudioClips()
+          } else {
+            useEditorStore.getState().pasteClips()
+          }
           break
         case 'split':
           useEditorStore.getState().splitAtPlayhead()
@@ -165,15 +196,27 @@ export function EditorView() {
       switch (e.key) {
         case 'c':
           e.preventDefault()
-          useEditorStore.getState().copySelectedClips()
+          if (useEditorStore.getState().selectedAudioClipIds.length > 0) {
+            useEditorStore.getState().copySelectedAudioClips()
+          } else {
+            useEditorStore.getState().copySelectedClips()
+          }
           break
         case 'x':
           e.preventDefault()
-          useEditorStore.getState().cutSelectedClips()
+          if (useEditorStore.getState().selectedAudioClipIds.length > 0) {
+            useEditorStore.getState().cutSelectedAudioClips()
+          } else {
+            useEditorStore.getState().cutSelectedClips()
+          }
           break
         case 'v':
           e.preventDefault()
-          useEditorStore.getState().pasteClips()
+          if (useEditorStore.getState().clipboardAudioClips) {
+            useEditorStore.getState().pasteAudioClips()
+          } else {
+            useEditorStore.getState().pasteClips()
+          }
           break
       }
     }
@@ -186,11 +229,31 @@ export function EditorView() {
     const sendMixerState = () => {
       const s = useEditorStore.getState()
       const clip = s.project.clips.find((c) => c.bundlePath && c.mixerSettings)
+      const tracks: Array<{ id: string; label: string }> = []
+      const settings: Array<{ trackId: string; volume: number; muted: boolean }> = []
+      let clipId = ''
+
       if (clip && clip.mixerSettings && clip.audioTracks) {
+        clipId = clip.id
+        for (const t of clip.audioTracks) {
+          tracks.push({ id: t.id, label: t.label })
+        }
+        for (const st of clip.mixerSettings.tracks) {
+          settings.push(st)
+        }
+      }
+
+      // Include independent audio tracks
+      for (const t of s.project.independentAudioTracks) {
+        tracks.push({ id: `ind-${t.id}`, label: t.label })
+        settings.push({ trackId: `ind-${t.id}`, volume: t.volume, muted: t.muted })
+      }
+
+      if (tracks.length > 0) {
         window.api.invoke('mixer:respond-state', {
-          clipId: clip.id,
-          tracks: clip.audioTracks.map((t) => ({ id: t.id, label: t.label })),
-          settings: clip.mixerSettings.tracks,
+          clipId: clipId || 'independent',
+          tracks,
+          settings,
         }).catch(() => {})
       } else {
         window.api.invoke('mixer:respond-state', null).catch(() => {})
@@ -204,15 +267,25 @@ export function EditorView() {
     const unsubUpdate = window.api.on('mixer:update', (...args: unknown[]) => {
       const data = args[0] as { type: string; clipId: string; trackId: string; value: number | boolean }
       const s = useEditorStore.getState()
-      if (data.type === 'volume') {
-        s.setTrackVolume(data.clipId, data.trackId, data.value as number)
-      } else if (data.type === 'muted') {
-        s.setTrackMuted(data.clipId, data.trackId, data.value as boolean)
+      // Check if this is an independent audio track update
+      if (data.trackId.startsWith('ind-')) {
+        const realTrackId = data.trackId.slice(4) // Remove 'ind-' prefix
+        if (data.type === 'volume') {
+          s.setAudioTrackVolume(realTrackId, data.value as number)
+        } else if (data.type === 'muted') {
+          s.setAudioTrackMuted(realTrackId, data.value as boolean)
+        }
+      } else {
+        if (data.type === 'volume') {
+          s.setTrackVolume(data.clipId, data.trackId, data.value as number)
+        } else if (data.type === 'muted') {
+          s.setTrackMuted(data.clipId, data.trackId, data.value as boolean)
+        }
       }
     })
 
     const unsubStore = useEditorStore.subscribe((state, prevState) => {
-      if (state.project.clips !== prevState.project.clips) {
+      if (state.project.clips !== prevState.project.clips || state.project.independentAudioTracks !== prevState.project.independentAudioTracks) {
         sendMixerState()
       }
     })
@@ -273,13 +346,24 @@ export function EditorView() {
     e.stopPropagation()
     setIsDragOver(false)
     const files = Array.from(e.dataTransfer.files)
-    const mediaExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv']
+    const videoExts = ['.mp4', '.mov', '.webm', '.avi', '.mkv']
+    const audioExts = ['.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac']
     for (const file of files) {
       const filePath = window.webUtils?.getPathForFile(file)
       if (!filePath) continue
       const ext = file.name.toLowerCase().slice(file.name.lastIndexOf('.'))
-      if (mediaExts.includes(ext)) {
+      if (videoExts.includes(ext)) {
         await store.addClip(filePath)
+      } else if (audioExts.includes(ext)) {
+        // Add to first audio track, or create one
+        let trackId: string
+        if (store.project.independentAudioTracks.length === 0) {
+          store.addAudioTrack('Audio 1')
+          trackId = useEditorStore.getState().project.independentAudioTracks[0].id
+        } else {
+          trackId = store.project.independentAudioTracks[0].id
+        }
+        await useEditorStore.getState().addAudioClip(trackId, filePath)
       }
     }
   }, [store])
@@ -333,7 +417,7 @@ export function EditorView() {
       {/* Toolbar */}
       <div className="editor-toolbar">
         <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
-        {isBundleClip && (
+        {(isBundleClip || store.project.independentAudioTracks.length > 0) && (
           <button className="editor-mixer-btn" onClick={() => window.api.invoke('mixer:open').catch(() => {})}>Mixer</button>
         )}
       </div>

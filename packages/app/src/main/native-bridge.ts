@@ -39,6 +39,7 @@ import {
   editorExport,
   editorExportStatus,
   editorProbeBundle,
+  editorProbeAudio,
   listAudioInputDevices,
   punchInStart,
   punchInStop,
@@ -255,6 +256,9 @@ export const nativeBridge = {
   },
   editorProbeBundle(bundlePath: string): string {
     return editorProbeBundle(bundlePath)
+  },
+  editorProbeAudio(path: string): number {
+    return editorProbeAudio(path)
   },
 
   // Punch-in recording

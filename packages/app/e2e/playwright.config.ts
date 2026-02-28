@@ -7,6 +7,7 @@ export default defineConfig({
   globalSetup: require.resolve('./global-setup'),
   use: {
     trace: 'on-first-retry',
+    video: 'on',
   },
   reporter: [['html', { outputFolder: '../playwright-report' }], ['list']],
   outputDir: '../test-results',

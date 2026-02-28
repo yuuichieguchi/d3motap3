@@ -1,8 +1,10 @@
 import { create } from 'zustand'
-import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject } from '@d3motap3/shared'
+import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject, IndependentAudioTrack, IndependentAudioClip } from '@d3motap3/shared'
 
 let nextClipId = 1
 let nextOverlayId = 1
+let nextAudioTrackId = 1
+let nextAudioClipId = 1
 
 let _userSeek = false
 
@@ -22,6 +24,14 @@ export interface ClipboardEntry {
   mixerSettings?: MixerSettings
 }
 
+export interface AudioClipboardEntry {
+  sourcePath: string
+  originalDuration: number
+  trimStart: number
+  trimEnd: number
+  timelineStartMs: number
+}
+
 interface EditorState {
   project: EditorProject
   selectedClipIds: string[]
@@ -35,6 +45,9 @@ interface EditorState {
   exportPollingInterval: ReturnType<typeof setInterval> | null
   exportOutputPath: string | null
   clipboardClips: ClipboardEntry[] | null
+  selectedAudioClipIds: string[]
+  lastSelectedAudioClipId: string | null
+  clipboardAudioClips: AudioClipboardEntry[] | null
 
   // Project actions
   setOutputResolution: (w: number, h: number) => void
@@ -86,6 +99,23 @@ interface EditorState {
   startPunchIn: () => Promise<void>
   stopPunchIn: () => Promise<void>
 
+  // Independent audio track actions
+  addAudioTrack: (label: string) => void
+  removeAudioTrack: (trackId: string) => void
+  addAudioClip: (trackId: string, sourcePath: string) => Promise<void>
+  removeAudioClip: (trackId: string, clipId: string) => void
+  moveAudioClip: (trackId: string, clipId: string, newStartMs: number) => void
+  trimAudioClip: (trackId: string, clipId: string, trimStart: number, trimEnd: number) => void
+  splitAudioClip: (trackId: string, clipId: string, atMs: number) => void
+  replaceAudioClipSource: (trackId: string, clipId: string, newSourcePath: string) => Promise<void>
+  selectAudioClip: (clipId: string | null, mode?: 'single' | 'toggle') => void
+  removeSelectedAudioClips: () => void
+  copySelectedAudioClips: () => void
+  cutSelectedAudioClips: () => void
+  pasteAudioClips: () => void
+  setAudioTrackVolume: (trackId: string, volume: number) => void
+  setAudioTrackMuted: (trackId: string, muted: boolean) => void
+
   // Computed
   totalDuration: () => number
   
@@ -97,6 +127,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   project: {
     clips: [],
     textOverlays: [],
+    independentAudioTracks: [],
     outputWidth: 1920,
     outputHeight: 1080,
   },
@@ -113,6 +144,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   isPunchingIn: false,
   punchInStartMs: 0,
   clipboardClips: null,
+  selectedAudioClipIds: [],
+  lastSelectedAudioClipId: null,
+  clipboardAudioClips: null,
 
   setOutputResolution: (w, h) => set((state) => ({
     project: { ...state.project, outputWidth: w, outputHeight: h },
@@ -339,7 +373,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   selectClip: (clipId, mode = 'single') => set((state) => {
     if (clipId === null) {
-      return { selectedClipIds: [], lastSelectedClipId: null, selectedOverlayId: null }
+      return { selectedClipIds: [], lastSelectedClipId: null, selectedOverlayId: null, selectedAudioClipIds: [], lastSelectedAudioClipId: null }
     }
 
     switch (mode) {
@@ -352,26 +386,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
           selectedClipIds: newIds,
           lastSelectedClipId: isSelected ? (newIds.length > 0 ? newIds[newIds.length - 1] : null) : clipId,
           selectedOverlayId: null,
+          selectedAudioClipIds: [],
+          lastSelectedAudioClipId: null,
         }
       }
       case 'range': {
         const anchor = state.lastSelectedClipId
         if (!anchor) {
-          return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null }
+          return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null, selectedAudioClipIds: [], lastSelectedAudioClipId: null }
         }
         const sorted = [...state.project.clips].sort((a, b) => a.order - b.order)
         const anchorIdx = sorted.findIndex(c => c.id === anchor)
         const targetIdx = sorted.findIndex(c => c.id === clipId)
         if (anchorIdx === -1 || targetIdx === -1) {
-          return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null }
+          return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null, selectedAudioClipIds: [], lastSelectedAudioClipId: null }
         }
         const start = Math.min(anchorIdx, targetIdx)
         const end = Math.max(anchorIdx, targetIdx)
         const rangeIds = sorted.slice(start, end + 1).map(c => c.id)
-        return { selectedClipIds: rangeIds, selectedOverlayId: null }
+        return { selectedClipIds: rangeIds, selectedOverlayId: null, selectedAudioClipIds: [], lastSelectedAudioClipId: null }
       }
       default:
-        return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null }
+        return { selectedClipIds: [clipId], lastSelectedClipId: clipId, selectedOverlayId: null, selectedAudioClipIds: [], lastSelectedAudioClipId: null }
     }
   }),
 
@@ -483,6 +519,23 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   splitAtPlayhead: () => {
     const state = get()
+
+    // If audio clips are selected, split them instead
+    if (state.selectedAudioClipIds.length > 0 && state.lastSelectedAudioClipId) {
+      for (const track of state.project.independentAudioTracks) {
+        const clip = track.clips.find((c) => c.id === state.lastSelectedAudioClipId)
+        if (clip) {
+          const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
+          if (state.currentTimeMs > clip.timelineStartMs &&
+              state.currentTimeMs < clip.timelineStartMs + clipDuration) {
+            get().splitAudioClip(track.id, clip.id, state.currentTimeMs)
+          }
+          return
+        }
+      }
+      return
+    }
+
     if (!state.lastSelectedClipId) return
 
     const sorted = [...state.project.clips].sort((a, b) => a.order - b.order)
@@ -570,6 +623,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
         y: o.y,
         font_size: o.fontSize,
         color: o.color,
+      })),
+      independent_audio_tracks: project.independentAudioTracks.map((t) => ({
+        id: t.id,
+        label: t.label,
+        clips: t.clips.map((c) => ({
+          id: c.id,
+          source_path: c.sourcePath,
+          original_duration: c.originalDuration,
+          trim_start: c.trimStart,
+          trim_end: c.trimEnd,
+          timeline_start_ms: c.timelineStartMs,
+        })),
+        volume: t.volume,
+        muted: t.muted,
       })),
       output_width: project.outputWidth,
       output_height: project.outputHeight,
@@ -729,6 +796,316 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }
   },
 
+  addAudioTrack: (label) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: [
+        ...state.project.independentAudioTracks,
+        {
+          id: `audio-track-${nextAudioTrackId++}`,
+          label,
+          clips: [],
+          volume: 1,
+          muted: false,
+        },
+      ],
+    },
+  })),
+
+  removeAudioTrack: (trackId) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: state.project.independentAudioTracks.filter(
+        (t) => t.id !== trackId
+      ),
+    },
+    selectedAudioClipIds: state.selectedAudioClipIds.filter(
+      (id) => !state.project.independentAudioTracks
+        .find((t) => t.id === trackId)?.clips.some((c) => c.id === id)
+    ),
+  })),
+
+  addAudioClip: async (trackId, sourcePath) => {
+    try {
+      const durationMs = await window.api.invoke('editor:probe-audio', sourcePath) as number
+      const clipId = `audio-clip-${nextAudioClipId++}`
+      const newClip: IndependentAudioClip = {
+        id: clipId,
+        sourcePath,
+        originalDuration: durationMs,
+        trimStart: 0,
+        trimEnd: 0,
+        timelineStartMs: get().currentTimeMs,
+      }
+      set((state) => ({
+        project: {
+          ...state.project,
+          independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+            t.id === trackId ? { ...t, clips: [...t.clips, newClip] } : t
+          ),
+        },
+      }))
+    } catch (err) {
+      console.error('Failed to add audio clip:', err)
+    }
+  },
+
+  removeAudioClip: (trackId, clipId) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+        t.id === trackId
+          ? { ...t, clips: t.clips.filter((c) => c.id !== clipId) }
+          : t
+      ),
+    },
+    selectedAudioClipIds: state.selectedAudioClipIds.filter((id) => id !== clipId),
+    lastSelectedAudioClipId: state.lastSelectedAudioClipId === clipId ? null : state.lastSelectedAudioClipId,
+  })),
+
+  moveAudioClip: (trackId, clipId, newStartMs) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...t,
+              clips: t.clips.map((c) =>
+                c.id === clipId ? { ...c, timelineStartMs: Math.max(0, newStartMs) } : c
+              ),
+            }
+          : t
+      ),
+    },
+  })),
+
+  trimAudioClip: (trackId, clipId, trimStart, trimEnd) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+        t.id === trackId
+          ? {
+              ...t,
+              clips: t.clips.map((c) =>
+                c.id === clipId ? { ...c, trimStart, trimEnd } : c
+              ),
+            }
+          : t
+      ),
+    },
+  })),
+
+  splitAudioClip: (trackId, clipId, atMs) => set((state) => {
+    const track = state.project.independentAudioTracks.find((t) => t.id === trackId)
+    if (!track) return state
+    const clip = track.clips.find((c) => c.id === clipId)
+    if (!clip) return state
+
+    const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
+    const relativeMs = atMs - clip.timelineStartMs
+    if (relativeMs <= 0 || relativeMs >= clipDuration) return state
+
+    const clip1: IndependentAudioClip = {
+      ...clip,
+      id: `audio-clip-${nextAudioClipId++}`,
+      trimEnd: clip.originalDuration - clip.trimStart - relativeMs,
+    }
+    const clip2: IndependentAudioClip = {
+      ...clip,
+      id: `audio-clip-${nextAudioClipId++}`,
+      trimStart: clip.trimStart + relativeMs,
+      timelineStartMs: clip.timelineStartMs + relativeMs,
+    }
+
+    return {
+      project: {
+        ...state.project,
+        independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+          t.id === trackId
+            ? { ...t, clips: [...t.clips.filter((c) => c.id !== clipId), clip1, clip2] }
+            : t
+        ),
+      },
+      selectedAudioClipIds: [clip1.id],
+      lastSelectedAudioClipId: clip1.id,
+    }
+  }),
+
+  replaceAudioClipSource: async (trackId, clipId, newSourcePath) => {
+    try {
+      const durationMs = await window.api.invoke('editor:probe-audio', newSourcePath) as number
+      set((state) => ({
+        project: {
+          ...state.project,
+          independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+            t.id === trackId
+              ? {
+                  ...t,
+                  clips: t.clips.map((c) =>
+                    c.id === clipId
+                      ? { ...c, sourcePath: newSourcePath, originalDuration: durationMs, trimStart: 0, trimEnd: 0 }
+                      : c
+                  ),
+                }
+              : t
+          ),
+        },
+      }))
+    } catch (err) {
+      console.error('Failed to replace audio clip source:', err)
+    }
+  },
+
+  selectAudioClip: (clipId, mode = 'single') => set((state) => {
+    if (clipId === null) {
+      return { selectedAudioClipIds: [], lastSelectedAudioClipId: null }
+    }
+
+    // Clear video/overlay selection when selecting audio
+    const base = { selectedClipIds: [] as string[], lastSelectedClipId: null, selectedOverlayId: null }
+
+    if (mode === 'toggle') {
+      const isSelected = state.selectedAudioClipIds.includes(clipId)
+      const newIds = isSelected
+        ? state.selectedAudioClipIds.filter((id) => id !== clipId)
+        : [...state.selectedAudioClipIds, clipId]
+      return {
+        ...base,
+        selectedAudioClipIds: newIds,
+        lastSelectedAudioClipId: isSelected
+          ? (newIds.length > 0 ? newIds[newIds.length - 1] : null)
+          : clipId,
+      }
+    }
+
+    return {
+      ...base,
+      selectedAudioClipIds: [clipId],
+      lastSelectedAudioClipId: clipId,
+    }
+  }),
+
+  removeSelectedAudioClips: () => set((state) => {
+    const idsToRemove = new Set(state.selectedAudioClipIds)
+    if (idsToRemove.size === 0) return state
+
+    return {
+      project: {
+        ...state.project,
+        independentAudioTracks: state.project.independentAudioTracks.map((t) => ({
+          ...t,
+          clips: t.clips.filter((c) => !idsToRemove.has(c.id)),
+        })),
+      },
+      selectedAudioClipIds: [],
+      lastSelectedAudioClipId: null,
+    }
+  }),
+
+  copySelectedAudioClips: () => {
+    const state = get()
+    const selectedIds = new Set(state.selectedAudioClipIds)
+    if (selectedIds.size === 0) return
+
+    const entries: AudioClipboardEntry[] = []
+    for (const track of state.project.independentAudioTracks) {
+      for (const clip of track.clips) {
+        if (selectedIds.has(clip.id)) {
+          entries.push({
+            sourcePath: clip.sourcePath,
+            originalDuration: clip.originalDuration,
+            trimStart: clip.trimStart,
+            trimEnd: clip.trimEnd,
+            timelineStartMs: clip.timelineStartMs,
+          })
+        }
+      }
+    }
+
+    set({ clipboardAudioClips: entries })
+  },
+
+  cutSelectedAudioClips: () => {
+    const state = get()
+    if (state.selectedAudioClipIds.length === 0) return
+    state.copySelectedAudioClips()
+    state.removeSelectedAudioClips()
+  },
+
+  pasteAudioClips: () => {
+    const state = get()
+    const { clipboardAudioClips } = state
+    if (!clipboardAudioClips || clipboardAudioClips.length === 0) return
+
+    // Paste into the first track, or create one if none exists
+    let targetTrackId: string
+    if (state.project.independentAudioTracks.length === 0) {
+      state.addAudioTrack('Audio')
+      const s = get()
+      targetTrackId = s.project.independentAudioTracks[0].id
+    } else {
+      // Find the track that contains the last selected audio clip, or use first track
+      let foundTrackId: string | null = null
+      if (state.lastSelectedAudioClipId) {
+        for (const track of state.project.independentAudioTracks) {
+          if (track.clips.some((c) => c.id === state.lastSelectedAudioClipId)) {
+            foundTrackId = track.id
+            break
+          }
+        }
+      }
+      targetTrackId = foundTrackId ?? state.project.independentAudioTracks[0].id
+    }
+
+    const newClipIds: string[] = []
+    const newClips: IndependentAudioClip[] = clipboardAudioClips.map((entry) => {
+      const clipId = `audio-clip-${nextAudioClipId++}`
+      newClipIds.push(clipId)
+      return {
+        id: clipId,
+        sourcePath: entry.sourcePath,
+        originalDuration: entry.originalDuration,
+        trimStart: entry.trimStart,
+        trimEnd: entry.trimEnd,
+        timelineStartMs: entry.timelineStartMs,
+      }
+    })
+
+    set((s) => ({
+      project: {
+        ...s.project,
+        independentAudioTracks: s.project.independentAudioTracks.map((t) =>
+          t.id === targetTrackId
+            ? { ...t, clips: [...t.clips, ...newClips] }
+            : t
+        ),
+      },
+      selectedAudioClipIds: newClipIds,
+      lastSelectedAudioClipId: newClipIds[newClipIds.length - 1],
+      selectedClipIds: [],
+      lastSelectedClipId: null,
+      selectedOverlayId: null,
+    }))
+  },
+
+  setAudioTrackVolume: (trackId, volume) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+        t.id === trackId ? { ...t, volume: Math.max(0, Math.min(1, volume)) } : t
+      ),
+    },
+  })),
+
+  setAudioTrackMuted: (trackId, muted) => set((state) => ({
+    project: {
+      ...state.project,
+      independentAudioTracks: state.project.independentAudioTracks.map((t) =>
+        t.id === trackId ? { ...t, muted } : t
+      ),
+    },
+  })),
+
   totalDuration: () => {
     const { clips } = get().project
     return clips.reduce((total, clip) => {
@@ -743,17 +1120,22 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     clipThumbnails.forEach((urls) => urls.forEach(URL.revokeObjectURL))
     nextClipId = 1
     nextOverlayId = 1
+    nextAudioTrackId = 1
+    nextAudioClipId = 1
     _userSeek = false
     set({
       project: {
         clips: [],
         textOverlays: [],
+        independentAudioTracks: [],
         outputWidth: 1920,
         outputHeight: 1080,
       },
       selectedClipIds: [],
       lastSelectedClipId: null,
       selectedOverlayId: null,
+      selectedAudioClipIds: [],
+      lastSelectedAudioClipId: null,
       currentTimeMs: 0,
       isPlaying: false,
       clipMetadata: new Map(),
@@ -763,6 +1145,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       isPunchingIn: false,
       punchInStartMs: 0,
       clipboardClips: null,
+      clipboardAudioClips: null,
     })
   },
 }))

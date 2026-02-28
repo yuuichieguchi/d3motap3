@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useEditorStore } from "../store/editor";
+import { AudioTrackRow } from './AudioTrackRow'
 
 export function Timeline() {
   const store = useEditorStore();
@@ -12,8 +13,9 @@ export function Timeline() {
   const [contextMenu, setContextMenu] = useState<{
     x: number;
     y: number;
-    type: "clip" | "overlay";
+    type: "clip" | "overlay" | "audio-clip";
     id: string;
+    trackId?: string;
     splitEnabled: boolean;
   } | null>(null);
 
@@ -85,6 +87,30 @@ export function Timeline() {
     },
     [store],
   );
+
+  const handleAudioContextMenu = useCallback(
+    (e: React.MouseEvent, clipId: string, trackId: string) => {
+      setContextMenu({
+        x: e.clientX,
+        y: e.clientY,
+        type: 'audio-clip',
+        id: clipId,
+        trackId,
+        splitEnabled: (() => {
+          const s = useEditorStore.getState()
+          for (const t of s.project.independentAudioTracks) {
+            const clip = t.clips.find((c) => c.id === clipId)
+            if (clip) {
+              const dur = clip.originalDuration - clip.trimStart - clip.trimEnd
+              return s.currentTimeMs > clip.timelineStartMs && s.currentTimeMs < clip.timelineStartMs + dur
+            }
+          }
+          return false
+        })(),
+      })
+    },
+    [],
+  )
 
   // Seek to position based on clientX relative to track
   const handleTrackSeek = useCallback((clientX: number) => {
@@ -273,6 +299,26 @@ export function Timeline() {
         })
       })()}
 
+      {/* Independent audio tracks */}
+      {store.project.independentAudioTracks.map((track) => (
+        <AudioTrackRow
+          key={track.id}
+          track={track}
+          totalDuration={totalDuration}
+          onContextMenu={handleAudioContextMenu}
+        />
+      ))}
+
+      {/* Add Audio Track button */}
+      <div className="timeline-add-audio-track">
+        <button
+          className="add-audio-track-btn"
+          onClick={() => store.addAudioTrack(`Audio ${store.project.independentAudioTracks.length + 1}`)}
+        >
+          + Audio Track
+        </button>
+      </div>
+
       {/* Text overlay track */}
       {overlays.length > 0 && (
         <div className="timeline-track overlay-track">
@@ -317,7 +363,10 @@ export function Timeline() {
             className="timeline-context-menu"
             style={{
               left: Math.min(contextMenu.x, window.innerWidth - 200),
-              top: Math.min(contextMenu.y, window.innerHeight - (contextMenu.type === "clip" ? 200 : 40)),
+              top: Math.min(contextMenu.y, window.innerHeight - (
+                contextMenu.type === "audio-clip" ? 300 :
+                contextMenu.type === "clip" ? 230 : 50
+              )),
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >
@@ -388,6 +437,91 @@ export function Timeline() {
                   <span>
                     {store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)
                       ? `Delete (${store.selectedClipIds.length} selected)`
+                      : "Delete"}
+                  </span>
+                  <span className="context-menu-shortcut">⌫</span>
+                </button>
+              </>
+            ) : contextMenu.type === "audio-clip" ? (
+              <>
+                {/* Copy */}
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={() => {
+                    store.copySelectedAudioClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Copy</span>
+                  <span className="context-menu-shortcut">⌘C</span>
+                </button>
+                {/* Cut */}
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={() => {
+                    store.cutSelectedAudioClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Cut</span>
+                  <span className="context-menu-shortcut">⌘X</span>
+                </button>
+                {/* Paste */}
+                <button
+                  className="timeline-context-menu-item"
+                  disabled={!store.clipboardAudioClips}
+                  onClick={() => {
+                    store.pasteAudioClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Paste</span>
+                  <span className="context-menu-shortcut">⌘V</span>
+                </button>
+                {/* Separator */}
+                <div className="context-menu-separator" />
+                {/* Split at Playhead */}
+                <button
+                  className="timeline-context-menu-item"
+                  disabled={!contextMenu.splitEnabled}
+                  onClick={() => {
+                    store.splitAtPlayhead();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Split at Playhead</span>
+                  <span className="context-menu-shortcut">⌘B</span>
+                </button>
+                {/* Separator */}
+                <div className="context-menu-separator" />
+                {/* Replace Audio */}
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={async () => {
+                    setContextMenu(null);
+                    const newPath = await window.api.invoke('dialog:open-file', {
+                      filters: [{ name: 'Audio Files', extensions: ['mp3', 'wav', 'm4a', 'aac', 'ogg', 'flac'] }],
+                    }) as string | null;
+                    if (newPath && contextMenu.trackId) {
+                      store.replaceAudioClipSource(contextMenu.trackId, contextMenu.id, newPath);
+                    }
+                  }}
+                >
+                  <span>Replace Audio...</span>
+                </button>
+                {/* Separator */}
+                <div className="context-menu-separator" />
+                {/* Delete */}
+                <button
+                  className="timeline-context-menu-item danger"
+                  onClick={() => {
+                    store.removeSelectedAudioClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>
+                    {store.selectedAudioClipIds.length > 1
+                      ? `Delete (${store.selectedAudioClipIds.length} selected)`
                       : "Delete"}
                   </span>
                   <span className="context-menu-shortcut">⌫</span>

@@ -100,6 +100,7 @@ export interface VideoMetadataJs {
   codec: string
 }
 export declare function editorProbe(path: string): VideoMetadataJs
+export declare function editorProbeAudio(path: string): number
 export declare function editorThumbnails(path: string, count: number, width: number): Array<Buffer>
 export declare function editorExport(projectJson: string, outputPath: string): void
 export declare function editorExportStatus(): string

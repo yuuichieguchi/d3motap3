@@ -217,6 +217,10 @@ export function registerIpcHandlers(): void {
     return nativeBridge.editorProbeBundle(bundlePath)
   })
 
+  ipcMain.handle('editor:probe-audio', (_event, path: string) => {
+    return nativeBridge.editorProbeAudio(path)
+  })
+
   // Punch-in recording
   ipcMain.handle('editor:punch-in-start', (_event, outputPath: string, microphoneDeviceId: string | null) => {
     return nativeBridge.punchInStart(outputPath, microphoneDeviceId)
