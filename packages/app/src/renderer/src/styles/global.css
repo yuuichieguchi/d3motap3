@@ -1603,7 +1603,7 @@ body {
   position: fixed;
   /* z-index: 50 — above playhead (5) and transition-indicator (2), below dialog-overlay (100) */
   z-index: 50;
-  min-width: 120px;
+  min-width: 180px;
   padding: 4px;
   background: rgba(20, 25, 40, 0.90);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -1615,21 +1615,50 @@ body {
 }
 
 .timeline-context-menu-item {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 16px;
   width: 100%;
-  padding: 6px 12px;
+  padding: 6px 14px;
   background: none;
   border: none;
   border-radius: 6px;
   font-size: 13px;
-  color: #ef4444;
+  color: var(--text-primary);
   cursor: pointer;
   text-align: left;
   transition: background 0.15s;
 }
 
 .timeline-context-menu-item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.timeline-context-menu-item:disabled {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+.timeline-context-menu-item.danger {
+  color: #ef4444;
+}
+
+.timeline-context-menu-item.danger:hover {
   background: rgba(239, 68, 68, 0.1);
+}
+
+.context-menu-shortcut {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.context-menu-separator {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  margin: 4px 0;
 }
 
 @keyframes context-menu-enter {

@@ -14,6 +14,7 @@ export function Timeline() {
     y: number;
     type: "clip" | "overlay";
     id: string;
+    splitEnabled: boolean;
   } | null>(null);
 
   // Track ref and drag state for click/drag seek
@@ -189,6 +190,7 @@ export function Timeline() {
                     y: e.clientY,
                     type: "clip",
                     id: clip.id,
+                    splitEnabled: store.canSplit(),
                   });
                 }}
                 title={`${clip.sourcePath.split("/").pop()} (${Math.round(clip.originalDuration - clip.trimStart - clip.trimEnd)}ms)`}
@@ -297,6 +299,7 @@ export function Timeline() {
                     y: e.clientY,
                     type: "overlay",
                     id: overlay.id,
+                    splitEnabled: false,
                   });
                 }}
                 title={`"${overlay.text}" (${Math.round(overlay.startTime)}ms - ${Math.round(overlay.endTime)}ms)`}
@@ -313,30 +316,95 @@ export function Timeline() {
           <div
             className="timeline-context-menu"
             style={{
-              left: Math.min(contextMenu.x, window.innerWidth - 140),
-              top: Math.min(contextMenu.y, window.innerHeight - 40),
+              left: Math.min(contextMenu.x, window.innerWidth - 200),
+              top: Math.min(contextMenu.y, window.innerHeight - (contextMenu.type === "clip" ? 200 : 40)),
             }}
             onMouseDown={(e) => e.stopPropagation()}
           >
-            <button
-              className="timeline-context-menu-item"
-              onClick={() => {
-                if (contextMenu.type === "clip") {
-                  if (store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)) {
-                    store.removeSelectedClips();
-                  } else {
-                    store.removeClip(contextMenu.id);
-                  }
-                } else {
+            {contextMenu.type === "clip" ? (
+              <>
+                {/* Copy */}
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={() => {
+                    store.copySelectedClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Copy</span>
+                  <span className="context-menu-shortcut">⌘C</span>
+                </button>
+                {/* Cut */}
+                <button
+                  className="timeline-context-menu-item"
+                  onClick={() => {
+                    store.cutSelectedClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Cut</span>
+                  <span className="context-menu-shortcut">⌘X</span>
+                </button>
+                {/* Paste */}
+                <button
+                  className="timeline-context-menu-item"
+                  disabled={!store.clipboardClips}
+                  onClick={() => {
+                    store.pasteClips();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Paste</span>
+                  <span className="context-menu-shortcut">⌘V</span>
+                </button>
+                {/* Separator */}
+                <div className="context-menu-separator" />
+                {/* Split at Playhead */}
+                <button
+                  className="timeline-context-menu-item"
+                  disabled={!contextMenu.splitEnabled}
+                  onClick={() => {
+                    store.splitAtPlayhead();
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>Split at Playhead</span>
+                  <span className="context-menu-shortcut">⌘B</span>
+                </button>
+                {/* Separator */}
+                <div className="context-menu-separator" />
+                {/* Delete */}
+                <button
+                  className="timeline-context-menu-item danger"
+                  onClick={() => {
+                    if (store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)) {
+                      store.removeSelectedClips();
+                    } else {
+                      store.removeClip(contextMenu.id);
+                    }
+                    setContextMenu(null);
+                  }}
+                >
+                  <span>
+                    {store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)
+                      ? `Delete (${store.selectedClipIds.length} selected)`
+                      : "Delete"}
+                  </span>
+                  <span className="context-menu-shortcut">⌫</span>
+                </button>
+              </>
+            ) : (
+              <button
+                className="timeline-context-menu-item danger"
+                onClick={() => {
                   store.removeTextOverlay(contextMenu.id);
-                }
-                setContextMenu(null);
-              }}
-            >
-              {contextMenu.type === "clip" && store.selectedClipIds.length > 1 && store.selectedClipIds.includes(contextMenu.id)
-                ? `Delete (${store.selectedClipIds.length} selected)`
-                : "Delete"}
-            </button>
+                  setContextMenu(null);
+                }}
+              >
+                <span>Delete</span>
+                <span className="context-menu-shortcut">⌫</span>
+              </button>
+            )}
           </div>,
           document.body,
         )}

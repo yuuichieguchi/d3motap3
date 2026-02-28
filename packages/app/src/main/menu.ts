@@ -44,7 +44,61 @@ export function setupApplicationMenu(getMainWindow: () => BrowserWindow | null):
         { role: 'close' }
       ]
     },
-    { role: 'editMenu' },
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' },
+        { role: 'redo' },
+        { type: 'separator' },
+        {
+          label: 'Cut',
+          accelerator: 'CmdOrCtrl+X',
+          registerAccelerator: false,
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'cut')
+          }
+        },
+        {
+          label: 'Copy',
+          accelerator: 'CmdOrCtrl+C',
+          registerAccelerator: false,
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'copy')
+          }
+        },
+        {
+          label: 'Paste',
+          accelerator: 'CmdOrCtrl+V',
+          registerAccelerator: false,
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'paste')
+          }
+        },
+        { type: 'separator' },
+        {
+          label: 'Split at Playhead',
+          accelerator: 'CmdOrCtrl+B',
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'split')
+          }
+        },
+        {
+          label: 'Delete',
+          accelerator: 'Backspace',
+          registerAccelerator: false,
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'delete')
+          }
+        },
+        { type: 'separator' },
+        { role: 'selectAll' }
+      ]
+    },
     { role: 'windowMenu' }
   ]
 

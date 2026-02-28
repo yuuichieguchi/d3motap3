@@ -110,6 +110,79 @@ export function EditorView() {
     }
   }, [store.isPlaying])
 
+  const deleteSelected = useCallback(() => {
+    const s = useEditorStore.getState()
+    if (s.selectedOverlayId) {
+      s.removeTextOverlay(s.selectedOverlayId)
+    } else {
+      s.removeSelectedClips()
+    }
+  }, [])
+
+  // Menu Edit action handler (IPC from native menu)
+  useEffect(() => {
+    const unsubscribe = window.api.on('menu:edit-action', (...args: unknown[]) => {
+      const action = args[0] as string
+      const active = document.activeElement
+      const isTextInput = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable)
+      if (isTextInput && action !== 'split') return
+
+      switch (action) {
+        case 'copy':
+          useEditorStore.getState().copySelectedClips()
+          break
+        case 'cut':
+          useEditorStore.getState().cutSelectedClips()
+          break
+        case 'paste':
+          useEditorStore.getState().pasteClips()
+          break
+        case 'split':
+          useEditorStore.getState().splitAtPlayhead()
+          break
+        case 'delete':
+          deleteSelected()
+          break
+      }
+    })
+    return unsubscribe
+  }, [deleteSelected])
+
+  // Keyboard shortcuts for clip operations
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const active = document.activeElement
+      const isTextInput = active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable)
+
+      if (e.key === 'Backspace' || e.key === 'Delete') {
+        if (isTextInput) return
+        e.preventDefault()
+        deleteSelected()
+        return
+      }
+
+      if (!e.metaKey && !e.ctrlKey) return
+      if (isTextInput) return
+
+      switch (e.key) {
+        case 'c':
+          e.preventDefault()
+          useEditorStore.getState().copySelectedClips()
+          break
+        case 'x':
+          e.preventDefault()
+          useEditorStore.getState().cutSelectedClips()
+          break
+        case 'v':
+          e.preventDefault()
+          useEditorStore.getState().pasteClips()
+          break
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [deleteSelected])
+
   const handlePlayPause = useCallback(() => {
     store.setPlaying(!store.isPlaying)
   }, [store])
@@ -123,12 +196,8 @@ export function EditorView() {
   }, [store])
 
   const handleSplit = useCallback(() => {
-    if (!store.lastSelectedClipId) return
-    const result = getClipAtTime(store.currentTimeMs)
-    if (result && result.clip.id === store.lastSelectedClipId) {
-      store.splitClip(store.lastSelectedClipId, result.localTime)
-    }
-  }, [store, getClipAtTime])
+    store.splitAtPlayhead()
+  }, [store])
 
   const handleExport = useCallback(async () => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
@@ -227,7 +296,7 @@ export function EditorView() {
       {/* Toolbar */}
       <div className="editor-toolbar">
         <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
-        <button onClick={handleSplit} disabled={!store.lastSelectedClipId}>Split</button>
+        <button onClick={handleSplit} disabled={!store.canSplit()}>Split</button>
         <PunchInControls />
       </div>
 

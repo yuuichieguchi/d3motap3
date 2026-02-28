@@ -12,6 +12,16 @@ export function consumeUserSeek(): boolean {
   return v
 }
 
+export interface ClipboardEntry {
+  sourcePath: string
+  originalDuration: number
+  trimStart: number
+  trimEnd: number
+  bundlePath?: string
+  audioTracks?: AudioTrack[]
+  mixerSettings?: MixerSettings
+}
+
 interface EditorState {
   project: EditorProject
   selectedClipIds: string[]
@@ -24,6 +34,7 @@ interface EditorState {
   exportStatus: EditorExportStatus
   exportPollingInterval: ReturnType<typeof setInterval> | null
   exportOutputPath: string | null
+  clipboardClips: ClipboardEntry[] | null
 
   // Project actions
   setOutputResolution: (w: number, h: number) => void
@@ -51,6 +62,13 @@ interface EditorState {
   selectClip: (clipId: string | null, mode?: 'single' | 'toggle' | 'range') => void
   removeSelectedClips: () => void
   selectOverlay: (overlayId: string | null) => void
+
+  // Clipboard & split actions
+  copySelectedClips: () => void
+  cutSelectedClips: () => void
+  pasteClips: () => void
+  splitAtPlayhead: () => void
+  canSplit: () => boolean
   
   // Export
   startExport: (outputPath: string) => Promise<void>
@@ -94,6 +112,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   exportOutputPath: null,
   isPunchingIn: false,
   punchInStartMs: 0,
+  clipboardClips: null,
 
   setOutputResolution: (w, h) => set((state) => ({
     project: { ...state.project, outputWidth: w, outputHeight: h },
@@ -385,6 +404,120 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   selectOverlay: (overlayId) => set({ selectedOverlayId: overlayId, selectedClipIds: [], lastSelectedClipId: null }),
 
+  copySelectedClips: () => {
+    const state = get()
+    const selectedIds = new Set(state.selectedClipIds)
+    if (selectedIds.size === 0) return
+
+    const entries: ClipboardEntry[] = state.project.clips
+      .filter((c) => selectedIds.has(c.id))
+      .sort((a, b) => a.order - b.order)
+      .map((c) => ({
+        sourcePath: c.sourcePath,
+        originalDuration: c.originalDuration,
+        trimStart: c.trimStart,
+        trimEnd: c.trimEnd,
+        bundlePath: c.bundlePath,
+        audioTracks: c.audioTracks,
+        mixerSettings: c.mixerSettings,
+      }))
+
+    set({ clipboardClips: entries })
+  },
+
+  cutSelectedClips: () => {
+    const state = get()
+    if (state.selectedClipIds.length === 0) return
+    state.copySelectedClips()
+    state.removeSelectedClips()
+  },
+
+  pasteClips: () => {
+    const state = get()
+    const { clipboardClips } = state
+    if (!clipboardClips || clipboardClips.length === 0) return
+
+    // Determine insertion point
+    let insertOrder: number
+    if (state.lastSelectedClipId) {
+      const selectedClip = state.project.clips.find((c) => c.id === state.lastSelectedClipId)
+      insertOrder = selectedClip ? selectedClip.order + 1 : state.project.clips.length
+    } else {
+      insertOrder = state.project.clips.length
+    }
+
+    // Shift subsequent clips' orders up
+    const updatedClips = state.project.clips.map((c) =>
+      c.order >= insertOrder
+        ? { ...c, order: c.order + clipboardClips.length }
+        : c
+    )
+
+    // Create new clips from clipboard entries
+    const newClipIds: string[] = []
+    const newClips: EditorClip[] = clipboardClips.map((entry, i) => {
+      const clipId = `clip-${nextClipId++}`
+      newClipIds.push(clipId)
+      return {
+        id: clipId,
+        sourcePath: entry.sourcePath,
+        originalDuration: entry.originalDuration,
+        trimStart: entry.trimStart,
+        trimEnd: entry.trimEnd,
+        order: insertOrder + i,
+        bundlePath: entry.bundlePath,
+        audioTracks: entry.audioTracks,
+        mixerSettings: entry.mixerSettings,
+      }
+    })
+
+    set({
+      project: {
+        ...state.project,
+        clips: [...updatedClips, ...newClips],
+      },
+      selectedClipIds: newClipIds,
+      lastSelectedClipId: newClipIds[newClipIds.length - 1],
+    })
+  },
+
+  splitAtPlayhead: () => {
+    const state = get()
+    if (!state.lastSelectedClipId) return
+
+    const sorted = [...state.project.clips].sort((a, b) => a.order - b.order)
+    let accumulated = 0
+    for (const clip of sorted) {
+      const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
+      if (clip.id === state.lastSelectedClipId) {
+        // Check if playhead falls within this clip
+        if (state.currentTimeMs > accumulated && state.currentTimeMs < accumulated + clipDuration) {
+          const localTime = state.currentTimeMs - accumulated + clip.trimStart
+          get().splitClip(clip.id, localTime)
+        }
+        return
+      }
+      accumulated += clipDuration
+    }
+  },
+
+  canSplit: () => {
+    const state = get()
+    if (!state.lastSelectedClipId) return false
+
+    const sorted = [...state.project.clips].sort((a, b) => a.order - b.order)
+    let accumulated = 0
+    for (const clip of sorted) {
+      const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
+      if (clip.id === state.lastSelectedClipId) {
+        // Playhead must be strictly within the clip (not at start or end)
+        return state.currentTimeMs > accumulated && state.currentTimeMs < accumulated + clipDuration
+      }
+      accumulated += clipDuration
+    }
+    return false
+  },
+
   startExport: async (outputPath) => {
     set({ exportOutputPath: null })
     const { project } = get()
@@ -629,6 +762,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       exportOutputPath: null,
       isPunchingIn: false,
       punchInStartMs: 0,
+      clipboardClips: null,
     })
   },
 }))
