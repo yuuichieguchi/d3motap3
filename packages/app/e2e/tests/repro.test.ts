@@ -5,6 +5,10 @@ test('repro: record with mic + system audio, 10s', async ({ page }) => {
   const dir = '/private/tmp/e2e-video-evidence'
   fs.mkdirSync(dir, { recursive: true })
 
+  // Ensure we're on Recording tab (previous tests may leave app on Editor)
+  await page.locator('.header-tab').filter({ hasText: 'Recording' }).click()
+  await page.waitForTimeout(300)
+
   // Add display source
   await page.locator('.add-source-btn').click()
   await page.locator('.dialog').waitFor({ state: 'visible' })

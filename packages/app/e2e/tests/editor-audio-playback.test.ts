@@ -41,10 +41,13 @@ test.describe('Editor audio playback', () => {
       const store = (window as any).__editorStore
       if (!store) throw new Error('__editorStore not exposed on window')
       store.setState({
-        project: { ...store.getState().project, clips: data, textOverlays: [] },
+        project: { ...store.getState().project, clips: data, textOverlays: [], independentAudioTracks: [] },
         selectedClipIds: [],
         lastSelectedClipId: null,
         selectedOverlayId: null,
+        selectedAudioClipIds: [],
+        lastSelectedAudioClipId: null,
+        clipboardAudioClips: null,
         currentTimeMs: 0,
         isPlaying: false,
       })
