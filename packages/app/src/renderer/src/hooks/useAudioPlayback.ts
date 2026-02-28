@@ -25,8 +25,10 @@ export function useAudioPlayback({
   currentTimeMs,
 }: UseAudioPlaybackOptions) {
   const audioContextRef = useRef<AudioContext | null>(null)
+  const analyserRef = useRef<AnalyserNode | null>(null)
   const trackStatesRef = useRef<Map<string, AudioTrackState>>(new Map())
   const lastSeekTimeRef = useRef<number>(0)
+  const playbackVersionRef = useRef<number>(0)
   const [isLoaded, setIsLoaded] = useState(false)
   const currentBundleRef = useRef<string | undefined>(undefined)
 
@@ -73,7 +75,13 @@ export function useAudioPlayback({
         const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
 
         const gainNode = ctx.createGain()
-        gainNode.connect(ctx.destination)
+        // Route through analyser for signal verification, then to speakers
+        if (!analyserRef.current) {
+          analyserRef.current = ctx.createAnalyser()
+          analyserRef.current.fftSize = 256
+          analyserRef.current.connect(ctx.destination)
+        }
+        gainNode.connect(analyserRef.current)
 
         trackStatesRef.current.set(track.id, {
           buffer: audioBuffer,
@@ -104,6 +112,10 @@ export function useAudioPlayback({
         state.gainNode.disconnect()
       }
       trackStatesRef.current.clear()
+      if (analyserRef.current) {
+        analyserRef.current.disconnect()
+        analyserRef.current = null
+      }
     }
   }, [bundlePath, audioTracks, getAudioContext])
 
@@ -120,9 +132,22 @@ export function useAudioPlayback({
   }, [mixerSettings])
 
   // Start/stop audio source nodes
-  const startAudioPlayback = useCallback((offsetSeconds: number) => {
+  // MUST be async: ctx.resume() must complete before source.start() for audio to play
+  const startAudioPlayback = useCallback(async (offsetSeconds: number) => {
     const ctx = audioContextRef.current
     if (!ctx || !isLoaded) return
+
+    // Increment version to invalidate any prior in-flight startAudioPlayback call.
+    const version = ++playbackVersionRef.current
+
+    // Ensure AudioContext is running BEFORE creating source nodes.
+    // source.start() on a suspended context queues but produces no output until resume.
+    if (ctx.state !== 'running') {
+      await ctx.resume()
+    }
+
+    // If another call superseded us while we were awaiting resume(), bail out.
+    if (playbackVersionRef.current !== version) return
 
     // Stop existing nodes
     for (const [, state] of trackStatesRef.current) {
@@ -154,14 +179,35 @@ export function useAudioPlayback({
       contextState: ctx.state,
       isLoaded,
     }
+
+    // Expose real-time signal level reader for E2E verification.
+    // Call this AFTER playback has been running for >100ms to get meaningful data.
+    ;(window as any).__getAudioSignalLevel = () => {
+      if (!analyserRef.current) return 0
+      const buf = new Float32Array(analyserRef.current.fftSize)
+      analyserRef.current.getFloatTimeDomainData(buf)
+      let peak = 0
+      for (let i = 0; i < buf.length; i++) {
+        const abs = Math.abs(buf[i])
+        if (abs > peak) peak = abs
+      }
+      return peak
+    }
   }, [isLoaded])
 
   const stopAudioPlayback = useCallback(() => {
+    // Increment version to cancel any in-flight async startAudioPlayback call.
+    playbackVersionRef.current++
+
     for (const [, state] of trackStatesRef.current) {
       if (state.sourceNode) {
         try { state.sourceNode.stop() } catch { /* already stopped */ }
         state.sourceNode = null
       }
+    }
+
+    if (audioContextRef.current?.state === 'running') {
+      audioContextRef.current.suspend()
     }
   }, [])
 
@@ -169,30 +215,17 @@ export function useAudioPlayback({
   useEffect(() => {
     if (!bundlePath || !isLoaded) return
 
-    const ctx = audioContextRef.current
-    if (!ctx) return
-
-    let cancelled = false
-
     if (isPlaying) {
-      ;(async () => {
-        if (ctx.state === 'suspended') {
-          await ctx.resume()
-        }
-        if (cancelled) return
-        const offsetSeconds = currentTimeMs / 1000
-        startAudioPlayback(offsetSeconds)
-      })()
+      // Sync lastSeekTimeRef BEFORE starting playback so the seek effect's
+      // first tick (≈33ms later) sees a small timeDiff and doesn't restart audio.
+      lastSeekTimeRef.current = currentTimeMs
+      const offsetSeconds = currentTimeMs / 1000
+      startAudioPlayback(offsetSeconds)
     } else {
       stopAudioPlayback()
-      if (ctx.state === 'running') {
-        ctx.suspend()
-      }
     }
-
-    return () => {
-      cancelled = true
-    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- currentTimeMs intentionally excluded:
+  // including it would restart audio every 33ms (setInterval tick). The seek effect handles time changes.
   }, [isPlaying, bundlePath, isLoaded, startAudioPlayback, stopAudioPlayback])
 
   // Handle seek during playback
@@ -213,6 +246,10 @@ export function useAudioPlayback({
   useEffect(() => {
     return () => {
       stopAudioPlayback()
+      if (analyserRef.current) {
+        analyserRef.current.disconnect()
+        analyserRef.current = null
+      }
       if (audioContextRef.current) {
         audioContextRef.current.close()
         audioContextRef.current = null

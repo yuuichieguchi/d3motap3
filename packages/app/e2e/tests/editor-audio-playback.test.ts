@@ -74,47 +74,44 @@ test.describe('Editor audio playback', () => {
     // Click play button via UI
     await page.locator(S.playBtn).click()
 
-    // Poll for playback debug info to be populated (set inside startAudioPlayback)
+    // Poll for playback debug with AudioContext actually running.
+    // startAudioPlayback is now async and awaits ctx.resume() before source.start(),
+    // so contextState MUST be 'running' when debug info is recorded.
     await page.waitForFunction(
-      () => (window as any).__audioPlaybackDebug != null,
+      () => (window as any).__audioPlaybackDebug?.contextState === 'running',
       { timeout: 5_000, polling: 200 },
     )
 
-    // Read debug state from useAudioPlayback
+    // Read pipeline state
     const debug = await page.evaluate(() => (window as any).__audioPlaybackDebug)
     const loadError = await page.evaluate(() => (window as any).__audioLoadError)
-    const loadState = await page.evaluate(() => {
-      const store = (window as any).__editorStore
-      const state = store.getState()
-      const clip = state.project.clips.find((c: any) => c.bundlePath)
-      return {
-        bundlePath: clip?.bundlePath,
-        audioTrackCount: clip?.audioTracks?.length,
-        currentTimeMs: state.currentTimeMs,
-        isPlaying: state.isPlaying,
-      }
-    })
+
+    // Verify pipeline conditions
+    expect(debug, `Audio debug must exist. loadError=${JSON.stringify(loadError)}`).toBeTruthy()
+    expect(debug.isLoaded, 'Audio buffers must be loaded').toBe(true)
+    expect(debug.contextState, 'AudioContext MUST be running').toBe('running')
+    expect(debug.activeSourceCount, 'Source nodes must be active').toBeGreaterThan(0)
+    expect(debug.lastOffsetSeconds, 'Offset must be within buffer').toBeLessThan(debug.bufferDuration)
+    // Local time should be ~0.5s (3500ms - 3000ms = 500ms)
+    expect(debug.lastOffsetSeconds).toBeGreaterThanOrEqual(0.3)
+    expect(debug.lastOffsetSeconds).toBeLessThanOrEqual(0.7)
+
+    // DEFINITIVE PROOF: poll AnalyserNode for non-zero audio signal.
+    // The test PCM is a 440Hz sine wave at 50% amplitude.
+    // If audio is truly playing, the analyser MUST detect signal > 0.
+    // Poll because the analyser needs time to accumulate samples after source.start().
+    await page.waitForFunction(
+      () => {
+        const fn = (window as any).__getAudioSignalLevel
+        return fn && fn() > 0
+      },
+      { timeout: 3_000, polling: 50 },
+    )
+    const signalLevel = await page.evaluate(() => (window as any).__getAudioSignalLevel())
+    expect(signalLevel, 'AnalyserNode must detect non-zero audio signal (PROOF of actual audio output)').toBeGreaterThan(0)
 
     // Stop playback
     await page.locator(S.playBtn).click()
-
-    // Diagnostic: if debug is null, report load error details
-    if (!debug) {
-      console.error('__audioPlaybackDebug is undefined. Load error:', JSON.stringify(loadError))
-      console.error('Store state:', JSON.stringify(loadState))
-    }
-
-    // Verify all 5 conditions
-    expect(debug, `Audio playback debug info should be available. loadError=${JSON.stringify(loadError)}, loadState=${JSON.stringify(loadState)}`).toBeTruthy()
-    expect(debug.isLoaded, 'Audio buffers should be loaded').toBe(true)
-    // contextState may be 'suspended' due to race between seek effect and ctx.resume().
-    // source.start() queues playback even when suspended; audio starts when resume() completes.
-    expect(debug.contextState, 'AudioContext should not be closed').not.toBe('closed')
-    expect(debug.activeSourceCount, 'At least one source node should be active').toBeGreaterThan(0)
-    expect(debug.lastOffsetSeconds, 'Offset should be less than buffer duration').toBeLessThan(debug.bufferDuration)
-    // The local time should be approximately 0.5s (3500ms - 3000ms = 500ms)
-    expect(debug.lastOffsetSeconds).toBeGreaterThanOrEqual(0.3)
-    expect(debug.lastOffsetSeconds).toBeLessThanOrEqual(0.7)
   })
 
   // ==================== Test 2: Split audio track row count ====================
