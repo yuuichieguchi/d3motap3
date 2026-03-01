@@ -33,6 +33,15 @@ test.describe('Editor text overlays', () => {
     await cleanupEditor(page)
   })
 
+  /** Helper: add a text overlay via the preset dialog with default settings */
+  async function addTextViaPresetDialog(page: import('@playwright/test').Page) {
+    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
+    await textBtn.click()
+    await page.locator('.text-preset-dialog').waitFor({ state: 'visible', timeout: 5000 })
+    await page.locator('.preset-add-btn').click()
+    await page.locator('.text-preset-dialog').waitFor({ state: 'hidden', timeout: 5000 })
+  }
+
   // ==================== Disabled State ====================
 
   test('+ Text button is disabled when no clips exist', async ({ page }) => {
@@ -52,10 +61,8 @@ test.describe('Editor text overlays', () => {
   // ==================== Add Overlay ====================
 
   test('+ Text button adds a text overlay to the timeline', async ({ page }) => {
-    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
-
-    // Click "+ Text" to add an overlay
-    await textBtn.click()
+    // Click "+ Text" and add via preset dialog
+    await addTextViaPresetDialog(page)
 
     // Verify overlay appears in the timeline
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
@@ -67,8 +74,7 @@ test.describe('Editor text overlays', () => {
 
   test('clicking an overlay selects it and shows the text overlay editor', async ({ page }) => {
     // Add an overlay first
-    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
-    await textBtn.click()
+    await addTextViaPresetDialog(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
 
     // Click on the overlay to select it
@@ -85,8 +91,7 @@ test.describe('Editor text overlays', () => {
 
   test('editing text in the overlay editor updates the timeline label', async ({ page }) => {
     // Add an overlay and select it
-    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
-    await textBtn.click()
+    await addTextViaPresetDialog(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
     await page.locator(S.timelineOverlay).click()
     await expect(page.locator(S.textOverlayEditor)).toBeVisible()
@@ -104,8 +109,7 @@ test.describe('Editor text overlays', () => {
 
   test('Remove Overlay button deletes the selected overlay', async ({ page }) => {
     // Add an overlay and select it
-    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
-    await textBtn.click()
+    await addTextViaPresetDialog(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
     await page.locator(S.timelineOverlay).click()
     await expect(page.locator(S.textOverlayEditor)).toBeVisible()
@@ -125,8 +129,7 @@ test.describe('Editor text overlays', () => {
 
   test('right-click context menu Delete removes the overlay', async ({ page }) => {
     // Add an overlay
-    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
-    await textBtn.click()
+    await addTextViaPresetDialog(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
 
     // Right-click on the overlay to open context menu
@@ -148,8 +151,7 @@ test.describe('Editor text overlays', () => {
 
   test('font size slider changes the displayed font size value', async ({ page }) => {
     // Add an overlay and select it
-    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
-    await textBtn.click()
+    await addTextViaPresetDialog(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
     await page.locator(S.timelineOverlay).click()
     await expect(page.locator(S.textOverlayEditor)).toBeVisible()

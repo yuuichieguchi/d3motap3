@@ -33,6 +33,18 @@ export interface TextOverlay {
   y: number // 0-1
   fontSize: number
   color: string // hex color
+  fontFamily: string // 'sans-serif' | 'serif' | 'monospace' | system font name
+  fontWeight: 'normal' | 'bold'
+  fontStyle: 'normal' | 'italic'
+  textAlign: 'left' | 'center' | 'right'
+  backgroundColor: string | null // null = transparent
+  borderColor: string | null // text stroke color
+  borderWidth: number // 0 = no outline
+  shadowColor: string | null
+  shadowOffsetX: number
+  shadowOffsetY: number
+  animation: 'none' | 'fade-in' | 'fade-out' | 'fade-in-out' | 'slide-up' | 'slide-down'
+  animationDuration: number // ms, default 500
 }
 
 export interface VideoMetadata {

@@ -64,7 +64,9 @@ interface EditorState {
   splitClip: (clipId: string, atMs: number) => void
   
   // Text overlay actions
-  addTextOverlay: (text: string, startTime: number, endTime: number) => void
+  addTextOverlay: (text: string, startTime: number, endTime: number, presets?: Partial<import('@d3motap3/shared').TextOverlay>) => void
+  moveTextOverlay: (overlayId: string, newStartTime: number) => void
+  trimTextOverlay: (overlayId: string, startTime: number, endTime: number) => void
   removeTextOverlay: (overlayId: string) => void
   updateTextOverlay: (overlayId: string, updates: Partial<TextOverlay>) => void
   
@@ -375,21 +377,71 @@ export const useEditorStore = create<EditorState>()(
     }
   }),
 
-  addTextOverlay: (text, startTime, endTime) => set((state) => ({
-    project: {
-      ...state.project,
-      textOverlays: [...state.project.textOverlays, {
-        id: `overlay-${nextOverlayId++}`,
-        text,
-        startTime,
-        endTime,
-        x: 0.5,
-        y: 0.9,
-        fontSize: 48,
-        color: '#ffffff',
-      }],
-    },
-  })),
+  addTextOverlay: (text, startTime, endTime, presets) => {
+    const overlayId = `overlay-${nextOverlayId++}`
+    set((state) => ({
+      project: {
+        ...state.project,
+        textOverlays: [...state.project.textOverlays, {
+          id: overlayId,
+          text,
+          startTime,
+          endTime,
+          x: 0.5,
+          y: 0.9,
+          fontSize: 48,
+          color: '#ffffff',
+          fontFamily: 'sans-serif',
+          fontWeight: 'normal' as const,
+          fontStyle: 'normal' as const,
+          textAlign: 'center' as const,
+          backgroundColor: null,
+          borderColor: null,
+          borderWidth: 0,
+          shadowColor: null,
+          shadowOffsetX: 0,
+          shadowOffsetY: 0,
+          animation: 'none' as const,
+          animationDuration: 500,
+          ...presets,
+        }],
+      },
+      selectedOverlayId: overlayId,
+    }))
+  },
+
+  moveTextOverlay: (overlayId, newStartTime) => set((state) => {
+    const overlay = state.project.textOverlays.find((o) => o.id === overlayId)
+    if (!overlay) return state
+    const duration = overlay.endTime - overlay.startTime
+    const clampedStart = Math.max(0, newStartTime)
+    return {
+      project: {
+        ...state.project,
+        textOverlays: state.project.textOverlays.map((o) =>
+          o.id === overlayId
+            ? { ...o, startTime: clampedStart, endTime: clampedStart + duration }
+            : o
+        ),
+      },
+    }
+  }),
+
+  trimTextOverlay: (overlayId, startTime, endTime) => set((state) => {
+    const minDuration = 100 // ms
+    const clampedStart = Math.max(0, startTime)
+    const clampedEnd = Math.max(clampedStart + minDuration, endTime)
+    return {
+      project: {
+        ...state.project,
+        textOverlays: state.project.textOverlays.map((o) =>
+          o.id === overlayId
+            ? { ...o, startTime: clampedStart, endTime: clampedEnd }
+            : o
+        ),
+      },
+    }
+  }),
 
   removeTextOverlay: (overlayId) => set((state) => ({
     project: {
@@ -667,6 +719,18 @@ export const useEditorStore = create<EditorState>()(
         y: o.y,
         font_size: o.fontSize,
         color: o.color,
+        font_family: o.fontFamily,
+        font_weight: o.fontWeight,
+        font_style: o.fontStyle,
+        text_align: o.textAlign,
+        background_color: o.backgroundColor,
+        border_color: o.borderColor,
+        border_width: o.borderWidth,
+        shadow_color: o.shadowColor,
+        shadow_offset_x: o.shadowOffsetX,
+        shadow_offset_y: o.shadowOffsetY,
+        animation: o.animation,
+        animation_duration: o.animationDuration,
       })),
       independent_audio_tracks: project.independentAudioTracks.map((t) => ({
         id: t.id,
