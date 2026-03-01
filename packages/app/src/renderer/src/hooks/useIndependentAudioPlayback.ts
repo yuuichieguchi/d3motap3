@@ -28,6 +28,7 @@ export function useIndependentAudioPlayback({
   const analyserRef = useRef<AnalyserNode | null>(null)
   const lastSeekTimeRef = useRef<number>(0)
   const playbackVersionRef = useRef<number>(0)
+  const activeClipIdsRef = useRef<Set<string>>(new Set())
   const [isLoaded, setIsLoaded] = useState(false)
 
   // Stable key that only changes when clip IDs/paths change (not volume/mute)
@@ -219,10 +220,25 @@ export function useIndependentAudioPlayback({
       }
     }
 
+    // Update active clip IDs for boundary detection
+    const nowPlaying = new Set<string>()
+    for (const track of tracksRef.current) {
+      if (track.muted) continue
+      for (const clip of track.clips) {
+        const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
+        const clipEnd = clip.timelineStartMs + clipDuration
+        if (timeMs >= clip.timelineStartMs && timeMs < clipEnd) {
+          nowPlaying.add(clip.id)
+        }
+      }
+    }
+    activeClipIdsRef.current = nowPlaying
+
   }, [audioContext, isLoaded])
 
   const stopPlayback = useCallback(() => {
     playbackVersionRef.current++
+    activeClipIdsRef.current = new Set()
 
     for (const [, trackState] of trackStatesRef.current) {
       for (const [, clipState] of trackState.clips) {
@@ -247,7 +263,7 @@ export function useIndependentAudioPlayback({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPlaying, tracks.length, isLoaded, startPlayback, stopPlayback])
 
-  // Handle seek during playback
+  // Handle seek during playback and detect clip boundary crossings
   useEffect(() => {
     if (!isPlaying || tracks.length === 0 || !isLoaded) return
 
@@ -255,6 +271,32 @@ export function useIndependentAudioPlayback({
     lastSeekTimeRef.current = currentTimeMs
 
     if (timeDiff > 100) {
+      startPlayback(currentTimeMs)
+      return
+    }
+
+    // Detect clip boundary crossings during continuous playback
+    const nowActive = new Set<string>()
+    for (const track of tracksRef.current) {
+      if (track.muted) continue
+      for (const clip of track.clips) {
+        const clipDuration = clip.originalDuration - clip.trimStart - clip.trimEnd
+        const clipEnd = clip.timelineStartMs + clipDuration
+        if (currentTimeMs >= clip.timelineStartMs && currentTimeMs < clipEnd) {
+          nowActive.add(clip.id)
+        }
+      }
+    }
+
+    const prev = activeClipIdsRef.current
+    let changed = nowActive.size !== prev.size
+    if (!changed) {
+      for (const id of nowActive) {
+        if (!prev.has(id)) { changed = true; break }
+      }
+    }
+    if (changed) {
+      activeClipIdsRef.current = nowActive
       startPlayback(currentTimeMs)
     }
   }, [currentTimeMs, isPlaying, tracks.length, isLoaded, startPlayback])
