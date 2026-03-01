@@ -33,7 +33,7 @@ function createWindow(): BrowserWindow {
       sandbox: false
     },
     titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 16, y: 16 }
+    trafficLightPosition: { x: 16, y: 18 }
   })
 
   if (is.dev && process.env['ELECTRON_RENDERER_URL']) {

@@ -59,11 +59,13 @@ test.describe('Enhanced text overlay features', () => {
       return {
         x: overlay.x,
         y: overlay.y,
+        width: overlay.width,
         textAlign: overlay.textAlign,
       }
     })
-    expect(props.x).toBeCloseTo(0.05) // Lower Third x
+    expect(props.x).toBeCloseTo(0.03) // Lower Third x (box left)
     expect(props.y).toBeCloseTo(0.82) // Lower Third y
+    expect(props.width).toBeCloseTo(0.5) // Lower Third width
     expect(props.textAlign).toBe('left')
   })
 
@@ -246,5 +248,58 @@ test.describe('Enhanced text overlay features', () => {
     // Verify preview overlay text is visible
     await expect(page.locator('.preview-overlay-text')).toBeVisible({ timeout: 5000 })
     await expect(page.locator('.preview-overlay-text')).toHaveText('Preview Me')
+  })
+
+  // ==================== Text Align Does Not Move Box ====================
+
+  test('L/C/R alignment does not change x or width', async ({ page }) => {
+    // Add overlay via + Text
+    const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
+    await textBtn.click()
+    await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5000 })
+
+    // Select overlay to show editor sidebar
+    await page.locator(S.timelineOverlay).click()
+    await expect(page.locator(S.textOverlayEditor)).toBeVisible()
+
+    // Get initial x and width
+    const initial = await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      const o = store.getState().project.textOverlays[0]
+      return { x: o.x, width: o.width }
+    })
+
+    // Click L alignment
+    await page.locator('.align-btn').filter({ hasText: 'L' }).click()
+    const afterL = await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      const o = store.getState().project.textOverlays[0]
+      return { x: o.x, width: o.width, textAlign: o.textAlign }
+    })
+    expect(afterL.x).toBe(initial.x)
+    expect(afterL.width).toBe(initial.width)
+    expect(afterL.textAlign).toBe('left')
+
+    // Click R alignment
+    await page.locator('.align-btn').filter({ hasText: 'R' }).click()
+    const afterR = await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      const o = store.getState().project.textOverlays[0]
+      return { x: o.x, width: o.width, textAlign: o.textAlign }
+    })
+    expect(afterR.x).toBe(initial.x)
+    expect(afterR.width).toBe(initial.width)
+    expect(afterR.textAlign).toBe('right')
+
+    // Click C alignment
+    await page.locator('.align-btn').filter({ hasText: 'C' }).click()
+    const afterC = await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      const o = store.getState().project.textOverlays[0]
+      return { x: o.x, width: o.width, textAlign: o.textAlign }
+    })
+    expect(afterC.x).toBe(initial.x)
+    expect(afterC.width).toBe(initial.width)
+    expect(afterC.textAlign).toBe('center')
   })
 })

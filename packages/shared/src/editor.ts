@@ -31,6 +31,7 @@ export interface TextOverlay {
   endTime: number // ms
   x: number // 0-1 (relative position)
   y: number // 0-1
+  width: number // 0-1 (box width, 1 = full width)
   fontSize: number
   color: string // hex color
   fontFamily: string // 'sans-serif' | 'serif' | 'monospace' | system font name

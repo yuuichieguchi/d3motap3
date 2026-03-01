@@ -325,8 +325,9 @@ export function EditorView() {
     const start = Math.min(store.currentTimeMs, totalDuration - 100)
     const end = Math.min(start + 3000, totalDuration)
     store.addTextOverlay('Text', start, end, {
-      x: 0.5,
+      x: 0,
       y: 0.9,
+      width: 1,
       textAlign: 'center',
       fontSize: 48,
       fontWeight: 'normal',
@@ -458,13 +459,14 @@ export function EditorView() {
                           position: 'absolute',
                           left: `${o.x * 100}%`,
                           top: `${o.y * 100}%`,
-                          transform: `translate(${o.textAlign === 'center' ? '-50%' : o.textAlign === 'right' ? '-100%' : '0'}, ${translateY}px)`,
+                          width: `${(o.width ?? 1) * 100}%`,
+                          textAlign: o.textAlign,
+                          transform: translateY !== 0 ? `translateY(${translateY}px)` : undefined,
                           fontSize: `${o.fontSize * 0.3}px`,
                           fontFamily: o.fontFamily,
                           fontWeight: o.fontWeight,
                           fontStyle: o.fontStyle,
                           color: o.color,
-                          textAlign: o.textAlign,
                           backgroundColor: o.backgroundColor ?? undefined,
                           padding: o.backgroundColor ? '2px 6px' : undefined,
                           WebkitTextStroke: o.borderColor ? `${o.borderWidth}px ${o.borderColor}` : undefined,
