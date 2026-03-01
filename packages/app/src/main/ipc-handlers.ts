@@ -221,6 +221,23 @@ export function registerIpcHandlers(): void {
     return nativeBridge.editorProbeAudio(path)
   })
 
+  ipcMain.handle('editor:save-project', async (_event, bundlePath: string, jsonContent: string) => {
+    if (!bundlePath.endsWith('.d3m')) throw new Error('Invalid bundle path')
+    const { writeFile } = await import('fs/promises')
+    await writeFile(join(bundlePath, 'editor.json'), jsonContent, 'utf-8')
+  })
+
+  ipcMain.handle('editor:load-project', async (_event, bundlePath: string) => {
+    if (!bundlePath.endsWith('.d3m')) return null
+    const { readFile } = await import('fs/promises')
+    try {
+      const content = await readFile(join(bundlePath, 'editor.json'), 'utf-8')
+      return content
+    } catch {
+      return null
+    }
+  })
+
   // Punch-in recording
   ipcMain.handle('editor:punch-in-start', (_event, outputPath: string, microphoneDeviceId: string | null) => {
     return nativeBridge.punchInStart(outputPath, microphoneDeviceId)

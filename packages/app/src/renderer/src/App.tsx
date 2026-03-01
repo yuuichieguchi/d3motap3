@@ -77,8 +77,22 @@ export function App() {
     const unsubscribe = window.api.on('open-bundle', (...args: unknown[]) => {
       const bundlePath = args[0] as string
       editorStore.reset()
-      editorStore.addClip(bundlePath).then(() => {
+      // Check for saved editor state
+      window.api.invoke('editor:load-project', bundlePath).then(async (content: unknown) => {
+        if (content && typeof content === 'string') {
+          try {
+            const savedData = JSON.parse(content)
+            await editorStore.loadSavedProject(bundlePath, savedData)
+          } catch {
+            // If parsing fails, fall back to normal addClip
+            await editorStore.addClip(bundlePath)
+          }
+        } else {
+          await editorStore.addClip(bundlePath)
+        }
         setCurrentView('editor')
+      }).catch((err) => {
+        console.error('Failed to open bundle:', err)
       })
     })
     return unsubscribe
@@ -125,6 +139,16 @@ export function App() {
       }).catch((err) => {
         console.error('Failed to import audio:', err)
       })
+    })
+    return unsubscribe
+  }, [])
+
+  // Handle new-project from native menu
+  useEffect(() => {
+    if (!window.api?.on) return
+    const unsubscribe = window.api.on('menu:new-project', () => {
+      editorStore.reset()
+      setCurrentView('recording')
     })
     return unsubscribe
   }, [])
