@@ -13,65 +13,71 @@ export function useWaveformData(
 ): Map<string, Float32Array> {
   const [waveformMap, setWaveformMap] = useState<Map<string, Float32Array>>(new Map())
   const cacheRef = useRef<Map<string, Float32Array>>(new Map())
-  const loadingRef = useRef<Set<string>>(new Set())
+  const inputsRef = useRef(clipInputs)
+  inputsRef.current = clipInputs
+
+  const stableKey = clipInputs.map((c) => `${c.clipId}:${c.sourcePath}`).join('|')
 
   useEffect(() => {
-    if (!audioContext || clipInputs.length === 0) return
+    if (!audioContext || !stableKey) return
 
     let cancelled = false
     const ctx = audioContext
+    const inputs = inputsRef.current
 
-    const loadMissing = async () => {
-      const updates: [string, Float32Array][] = []
+    const loadAll = async (): Promise<void> => {
+      const toLoad = inputs.filter((inp) => !cacheRef.current.has(inp.clipId))
 
-      for (const input of clipInputs) {
-        if (cancelled) return
-        if (cacheRef.current.has(input.clipId)) continue
-        if (loadingRef.current.has(input.clipId)) continue
+      if (toLoad.length > 0) {
+        await Promise.all(
+          toLoad.map(async (input) => {
+            try {
+              const url = input.pcmFormat
+                ? `audio://local${input.sourcePath}?sr=${input.pcmFormat.sampleRate}&ch=${input.pcmFormat.channels}`
+                : `media://local${input.sourcePath}`
 
-        loadingRef.current.add(input.clipId)
+              const response = await fetch(url)
+              if (!response.ok) return
 
-        try {
-          const url = input.pcmFormat
-            ? `audio://local${input.sourcePath}?sr=${input.pcmFormat.sampleRate}&ch=${input.pcmFormat.channels}`
-            : `media://local${input.sourcePath}`
+              const arrayBuffer = await response.arrayBuffer()
+              const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
+              const peaks = extractPeaks(audioBuffer)
 
-          const response = await fetch(url)
-          if (cancelled) return
-          if (!response.ok) continue
-
-          const arrayBuffer = await response.arrayBuffer()
-          if (cancelled) return
-
-          const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-          if (cancelled) return
-
-          const peaks = extractPeaks(audioBuffer)
-          cacheRef.current.set(input.clipId, peaks)
-          updates.push([input.clipId, peaks])
-        } catch {
-          // Silently skip failed loads
-        } finally {
-          loadingRef.current.delete(input.clipId)
-        }
+              // Always cache, even if cancelled — next effect run will find it
+              cacheRef.current.set(input.clipId, peaks)
+            } catch (err) {
+              console.error('Waveform load failed for', input.clipId, err)
+            }
+          }),
+        )
       }
 
-      if (!cancelled && updates.length > 0) {
+      if (cancelled) return
+
+      // Update state if we have any cached data (new or previously cached)
+      if (cacheRef.current.size > 0) {
+        const debugData: Record<string, { max: number; sum: number; length: number }> = {}
+        for (const [clipId, peaks] of cacheRef.current) {
+          let max = 0,
+            sum = 0
+          for (let i = 0; i < peaks.length; i++) {
+            if (peaks[i] > max) max = peaks[i]
+            sum += peaks[i]
+          }
+          debugData[clipId] = { max, sum, length: peaks.length }
+        }
+        ;(window as unknown as Record<string, unknown>).__waveformData = debugData
+
         setWaveformMap(new Map(cacheRef.current))
       }
     }
 
-    loadMissing()
+    loadAll()
 
-    return () => {
+    return (): void => {
       cancelled = true
     }
-  }, [clipInputs, audioContext])
-
-  // Return cached data immediately if available
-  if (cacheRef.current.size > 0 && waveformMap.size === 0) {
-    return cacheRef.current
-  }
+  }, [stableKey, audioContext])
 
   return waveformMap
 }

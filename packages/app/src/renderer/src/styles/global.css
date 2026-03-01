@@ -1890,6 +1890,7 @@ textarea::placeholder {
   display: flex;
   align-items: center;
   min-height: 24px;
+  margin-top: 4px;
   padding: 0;
 }
 
