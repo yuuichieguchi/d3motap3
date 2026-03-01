@@ -2,8 +2,8 @@
  * E2E tests for enhanced text overlay features (iMovie-level).
  *
  * Coverage:
- * - Preset dialog opens on "+ Text" click
- * - Preset selection creates overlay with correct properties
+ * - Direct add via "+ Text" button
+ * - Preset quick buttons apply position
  * - Overlay drag-move shifts start/end times
  * - Left trim handle adjusts startTime
  * - Right trim handle adjusts endTime
@@ -26,38 +26,31 @@ test.describe('Enhanced text overlay features', () => {
     await cleanupEditor(page)
   })
 
-  // ==================== Preset Dialog ====================
+  // ==================== Direct Add ====================
 
-  test('+ Text button opens preset dialog', async ({ page }) => {
+  test('+ Text button directly adds overlay to timeline', async ({ page }) => {
     const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
     await textBtn.click()
 
-    // Verify the text preset dialog is visible
-    await expect(page.locator('.text-preset-dialog')).toBeVisible({ timeout: 5000 })
-    await expect(page.locator('.preset-section')).toHaveCount(2) // Position + Size sections
-    await expect(page.locator('.preset-add-btn')).toBeVisible()
+    // Overlay should appear directly in the timeline (no dialog)
+    await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5000 })
+    await expect(page.locator('.text-preset-dialog')).not.toBeVisible()
   })
 
-  // ==================== Preset Creates Overlay ====================
+  // ==================== Preset Quick Buttons ====================
 
-  test('selecting presets and clicking Add creates overlay with correct properties', async ({ page }) => {
+  test('preset quick buttons apply correct position to overlay', async ({ page }) => {
+    // Add overlay via + Text
     const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
     await textBtn.click()
-    await expect(page.locator('.text-preset-dialog')).toBeVisible({ timeout: 5000 })
-
-    // Select "Lower Third" position (index 1)
-    await page.locator('.preset-section').first().locator('.preset-option').nth(1).click()
-    // Select "Large (72px)" size (index 2)
-    await page.locator('.preset-section').nth(1).locator('.preset-option').nth(2).click()
-
-    // Click Add
-    await page.locator('.preset-add-btn').click()
-
-    // Dialog should close
-    await expect(page.locator('.text-preset-dialog')).not.toBeVisible()
-
-    // Verify overlay in timeline
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5000 })
+
+    // Select overlay to show editor sidebar
+    await page.locator(S.timelineOverlay).click()
+    await expect(page.locator(S.textOverlayEditor)).toBeVisible()
+
+    // Click "Lower 3rd" preset button (second button)
+    await page.locator('.toe-preset-btn').nth(1).click()
 
     // Verify properties in store
     const props = await page.evaluate(() => {
@@ -67,15 +60,11 @@ test.describe('Enhanced text overlay features', () => {
         x: overlay.x,
         y: overlay.y,
         textAlign: overlay.textAlign,
-        fontSize: overlay.fontSize,
-        fontWeight: overlay.fontWeight,
       }
     })
     expect(props.x).toBeCloseTo(0.05) // Lower Third x
     expect(props.y).toBeCloseTo(0.82) // Lower Third y
     expect(props.textAlign).toBe('left')
-    expect(props.fontSize).toBe(72)
-    expect(props.fontWeight).toBe('bold')
   })
 
   // ==================== Drag Move ====================

@@ -4,7 +4,6 @@ import { useAudioPlayback } from '../hooks/useAudioPlayback'
 import { useIndependentAudioPlayback } from '../hooks/useIndependentAudioPlayback'
 import { Timeline } from './Timeline'
 import { TextOverlayEditor } from './TextOverlayEditor'
-import { TextPresetDialog } from './TextPresetDialog'
 
 export function EditorView() {
   const store = useEditorStore()
@@ -323,19 +322,15 @@ export function EditorView() {
   const handleAddText = useCallback(() => {
     const totalDuration = store.totalDuration()
     if (totalDuration <= 0) return
-    setShowTextPresetDialog(true)
-  }, [store])
-
-  const handlePresetAdd = useCallback((presets: { x: number; y: number; textAlign: 'left' | 'center' | 'right'; fontSize: number; fontWeight: 'normal' | 'bold' }) => {
-    const totalDuration = store.totalDuration()
-    if (totalDuration <= 0) {
-      setShowTextPresetDialog(false)
-      return
-    }
     const start = Math.min(store.currentTimeMs, totalDuration - 100)
     const end = Math.min(start + 3000, totalDuration)
-    store.addTextOverlay('Text', start, end, presets)
-    setShowTextPresetDialog(false)
+    store.addTextOverlay('Text', start, end, {
+      x: 0.5,
+      y: 0.9,
+      textAlign: 'center',
+      fontSize: 48,
+      fontWeight: 'normal',
+    })
   }, [store])
 
   const handleExport = useCallback(async () => {
@@ -355,7 +350,6 @@ export function EditorView() {
   }, [store])
 
   const [isDragOver, setIsDragOver] = useState(false)
-  const [showTextPresetDialog, setShowTextPresetDialog] = useState(false)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
@@ -410,168 +404,169 @@ export function EditorView() {
 
   return (
     <div className="editor-view" onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop}>
-      {/* Header */}
-      <div className="editor-header">
-        <button
-          className="editor-export-btn"
-          onClick={handleExport}
-          disabled={store.project.clips.length === 0 || store.exportStatus.status === 'exporting'}
-        >
-          Export
-        </button>
-      </div>
+      <div className="editor-main">
+        {/* Header */}
+        <div className="editor-header">
+          <button
+            className="editor-export-btn"
+            onClick={handleExport}
+            disabled={store.project.clips.length === 0 || store.exportStatus.status === 'exporting'}
+          >
+            Export
+          </button>
+        </div>
 
-      {/* Video Preview */}
-      <div className="editor-preview">
-        {store.project.clips.length > 0 && (
-          <>
-            <video
-              ref={videoRef}
-              className="editor-video"
-              controls={false}
-              muted={isBundleClip}
-            />
-            <div className="preview-overlay-container">
-              {store.project.textOverlays
-                .filter((o) => store.currentTimeMs >= o.startTime && store.currentTimeMs <= o.endTime)
-                .map((o) => {
-                  const progress = o.endTime > o.startTime ? (store.currentTimeMs - o.startTime) / (o.endTime - o.startTime) : 0
-                  const duration = o.endTime - o.startTime
-                  const animDurRatio = duration > 0 ? Math.min(o.animationDuration / duration, 0.5) : 0
-                  let opacity = 1
-                  let translateY = 0
+        {/* Video Preview */}
+        <div className="editor-preview">
+          {store.project.clips.length > 0 && (
+            <>
+              <video
+                ref={videoRef}
+                className="editor-video"
+                controls={false}
+                muted={isBundleClip}
+              />
+              <div className="preview-overlay-container">
+                {store.project.textOverlays
+                  .filter((o) => store.currentTimeMs >= o.startTime && store.currentTimeMs <= o.endTime)
+                  .map((o) => {
+                    const progress = o.endTime > o.startTime ? (store.currentTimeMs - o.startTime) / (o.endTime - o.startTime) : 0
+                    const duration = o.endTime - o.startTime
+                    const animDurRatio = duration > 0 ? Math.min(o.animationDuration / duration, 0.5) : 0
+                    let opacity = 1
+                    let translateY = 0
 
-                  if (o.animation === 'fade-in' && progress < animDurRatio) {
-                    opacity = progress / animDurRatio
-                  } else if (o.animation === 'fade-out' && progress > 1 - animDurRatio) {
-                    opacity = (1 - progress) / animDurRatio
-                  } else if (o.animation === 'fade-in-out') {
-                    if (progress < animDurRatio) opacity = progress / animDurRatio
-                    else if (progress > 1 - animDurRatio) opacity = (1 - progress) / animDurRatio
-                  } else if (o.animation === 'slide-up' && progress < animDurRatio) {
-                    translateY = 50 * (1 - progress / animDurRatio)
-                  } else if (o.animation === 'slide-down' && progress < animDurRatio) {
-                    translateY = -50 * (1 - progress / animDurRatio)
-                  }
+                    if (o.animation === 'fade-in' && progress < animDurRatio) {
+                      opacity = progress / animDurRatio
+                    } else if (o.animation === 'fade-out' && progress > 1 - animDurRatio) {
+                      opacity = (1 - progress) / animDurRatio
+                    } else if (o.animation === 'fade-in-out') {
+                      if (progress < animDurRatio) opacity = progress / animDurRatio
+                      else if (progress > 1 - animDurRatio) opacity = (1 - progress) / animDurRatio
+                    } else if (o.animation === 'slide-up' && progress < animDurRatio) {
+                      translateY = 50 * (1 - progress / animDurRatio)
+                    } else if (o.animation === 'slide-down' && progress < animDurRatio) {
+                      translateY = -50 * (1 - progress / animDurRatio)
+                    }
 
-                  const isSelected = store.selectedOverlayId === o.id
-                  return (
-                    <div
-                      key={o.id}
-                      className={`preview-overlay-text ${isSelected ? 'selected' : ''}`}
-                      style={{
-                        position: 'absolute',
-                        left: `${o.x * 100}%`,
-                        top: `${o.y * 100}%`,
-                        transform: `translate(${o.textAlign === 'center' ? '-50%' : o.textAlign === 'right' ? '-100%' : '0'}, ${translateY}px)`,
-                        fontSize: `${o.fontSize * 0.3}px`,
-                        fontFamily: o.fontFamily,
-                        fontWeight: o.fontWeight,
-                        fontStyle: o.fontStyle,
-                        color: o.color,
-                        textAlign: o.textAlign,
-                        backgroundColor: o.backgroundColor ?? undefined,
-                        padding: o.backgroundColor ? '2px 6px' : undefined,
-                        WebkitTextStroke: o.borderColor ? `${o.borderWidth}px ${o.borderColor}` : undefined,
-                        textShadow: o.shadowColor
-                          ? `${o.shadowOffsetX}px ${o.shadowOffsetY}px 2px ${o.shadowColor}`
-                          : undefined,
-                        opacity,
-                        whiteSpace: 'pre-wrap',
-                        cursor: 'pointer',
-                        pointerEvents: 'auto',
-                      }}
-                      onClick={(e) => { e.stopPropagation(); store.selectOverlay(o.id) }}
-                    >
-                      {o.text}
-                    </div>
-                  )
-                })}
+                    const isSelected = store.selectedOverlayId === o.id
+                    return (
+                      <div
+                        key={o.id}
+                        className={`preview-overlay-text ${isSelected ? 'selected' : ''}`}
+                        style={{
+                          position: 'absolute',
+                          left: `${o.x * 100}%`,
+                          top: `${o.y * 100}%`,
+                          transform: `translate(${o.textAlign === 'center' ? '-50%' : o.textAlign === 'right' ? '-100%' : '0'}, ${translateY}px)`,
+                          fontSize: `${o.fontSize * 0.3}px`,
+                          fontFamily: o.fontFamily,
+                          fontWeight: o.fontWeight,
+                          fontStyle: o.fontStyle,
+                          color: o.color,
+                          textAlign: o.textAlign,
+                          backgroundColor: o.backgroundColor ?? undefined,
+                          padding: o.backgroundColor ? '2px 6px' : undefined,
+                          WebkitTextStroke: o.borderColor ? `${o.borderWidth}px ${o.borderColor}` : undefined,
+                          textShadow: o.shadowColor
+                            ? `${o.shadowOffsetX}px ${o.shadowOffsetY}px 2px ${o.shadowColor}`
+                            : undefined,
+                          opacity,
+                          whiteSpace: 'pre-wrap',
+                          cursor: 'pointer',
+                          pointerEvents: 'auto',
+                        }}
+                        onClick={(e) => { e.stopPropagation(); store.selectOverlay(o.id) }}
+                      >
+                        {o.text}
+                      </div>
+                    )
+                  })}
+              </div>
+            </>
+          )}
+          {store.project.clips.length === 0 && (
+            <div className="editor-empty-state">
+              <p>No clips added</p>
+              <p className="editor-empty-hint">
+                Drop media files here, or ⌘O to open a project
+              </p>
             </div>
-          </>
+          )}
+        </div>
+
+        {/* Toolbar */}
+        <div className="editor-toolbar">
+          <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
+          {(isBundleClip || store.project.independentAudioTracks.length > 0) && (
+            <button className="editor-mixer-btn" onClick={() => window.api.invoke('mixer:open').catch(() => {})}>Mixer</button>
+          )}
+        </div>
+
+        {/* Playback controls */}
+        {totalDuration > 0 && (
+          <div className="editor-playback">
+            <button className="play-btn" onClick={handlePlayPause}>
+              {store.isPlaying ? '⏸' : '▶'}
+            </button>
+            <span className="time-display">{formatTime(store.currentTimeMs)}</span>
+            <input
+              type="range"
+              className="seek-bar"
+              min={0}
+              max={totalDuration}
+              value={store.currentTimeMs}
+              onChange={handleSeek}
+            />
+            <span className="time-display">{formatTime(totalDuration)}</span>
+          </div>
         )}
-        {store.project.clips.length === 0 && (
-          <div className="editor-empty-state">
-            <p>No clips added</p>
-            <p className="editor-empty-hint">
-              Drop media files here, or ⌘O to open a project
-            </p>
+
+        {/* Timeline */}
+        <Timeline getAudioContext={getSharedAudioContext} />
+
+        {/* Export status */}
+        {store.exportStatus.status === 'exporting' && (
+          <div className="export-progress-bar">
+            <div
+              className="export-progress-fill"
+              style={{ width: `${store.exportStatus.progress}%` }}
+            />
+            <span>Exporting... {store.exportStatus.progress}%</span>
+          </div>
+        )}
+        {store.exportStatus.status === 'completed' && (
+          <div className="result-box">
+            <button className="result-box-close-btn" onClick={() => store.dismissExportStatus()}>×</button>
+            <p>Export completed</p>
+            {store.exportOutputPath && (
+              <>
+                <p className="result-path">{store.exportOutputPath}</p>
+                <button
+                  className="show-in-finder-btn"
+                  onClick={() => { window.api.invoke('shell:show-item-in-folder', store.exportOutputPath!).catch(() => {}) }}
+                >
+                  Show in Finder
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {store.exportStatus.status === 'failed' && (
+          <div className="error-box">Export failed: {store.exportStatus.error}</div>
+        )}
+
+        {isDragOver && (
+          <div className="editor-drop-overlay">
+            <p>Drop to import media</p>
           </div>
         )}
       </div>
 
-      {/* Toolbar */}
-      <div className="editor-toolbar">
-        <button onClick={handleAddText} disabled={totalDuration <= 0}>+ Text</button>
-        {(isBundleClip || store.project.independentAudioTracks.length > 0) && (
-          <button className="editor-mixer-btn" onClick={() => window.api.invoke('mixer:open').catch(() => {})}>Mixer</button>
-        )}
-      </div>
-
-      {/* Playback controls */}
-      {totalDuration > 0 && (
-        <div className="editor-playback">
-          <button className="play-btn" onClick={handlePlayPause}>
-            {store.isPlaying ? '⏸' : '▶'}
-          </button>
-          <span className="time-display">{formatTime(store.currentTimeMs)}</span>
-          <input
-            type="range"
-            className="seek-bar"
-            min={0}
-            max={totalDuration}
-            value={store.currentTimeMs}
-            onChange={handleSeek}
-          />
-          <span className="time-display">{formatTime(totalDuration)}</span>
-        </div>
-      )}
-
-      {/* Timeline */}
-      <Timeline getAudioContext={getSharedAudioContext} />
-
-      {/* Text overlay editor */}
-      <TextOverlayEditor />
-
-      {/* Export status */}
-      {store.exportStatus.status === 'exporting' && (
-        <div className="export-progress-bar">
-          <div
-            className="export-progress-fill"
-            style={{ width: `${store.exportStatus.progress}%` }}
-          />
-          <span>Exporting... {store.exportStatus.progress}%</span>
-        </div>
-      )}
-      {store.exportStatus.status === 'completed' && (
-        <div className="result-box">
-          <button className="result-box-close-btn" onClick={() => store.dismissExportStatus()}>×</button>
-          <p>Export completed</p>
-          {store.exportOutputPath && (
-            <>
-              <p className="result-path">{store.exportOutputPath}</p>
-              <button
-                className="show-in-finder-btn"
-                onClick={() => { window.api.invoke('shell:show-item-in-folder', store.exportOutputPath!).catch(() => {}) }}
-              >
-                Show in Finder
-              </button>
-            </>
-          )}
-        </div>
-      )}
-      {store.exportStatus.status === 'failed' && (
-        <div className="error-box">Export failed: {store.exportStatus.error}</div>
-      )}
-      {/* Text preset dialog */}
-      <TextPresetDialog
-        open={showTextPresetDialog}
-        onClose={() => setShowTextPresetDialog(false)}
-        onAdd={handlePresetAdd}
-      />
-      {isDragOver && (
-        <div className="editor-drop-overlay">
-          <p>Drop to import media</p>
+      {/* Sidebar: Text overlay editor */}
+      {store.selectedOverlayId && (
+        <div className="editor-sidebar">
+          <TextOverlayEditor />
         </div>
       )}
     </div>

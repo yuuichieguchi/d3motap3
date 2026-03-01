@@ -1234,10 +1234,27 @@ body {
 
 .editor-view {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   flex: 1;
   overflow: hidden;
   position: relative;
+}
+
+.editor-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+}
+
+.editor-sidebar {
+  width: 280px;
+  flex-shrink: 0;
+  overflow-y: auto;
+  border-left: 1px solid var(--border);
+  background: var(--bg-primary);
 }
 
 .editor-header {
@@ -1721,8 +1738,173 @@ body {
    ============================================= */
 
 .text-overlay-editor {
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.toe-preset-row {
+  display: flex;
+  gap: 4px;
+}
+
+.toe-preset-btn {
+  flex: 1;
+  padding: 4px 2px;
+  font-size: 11px;
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  background: var(--glass-bg);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.toe-preset-btn:hover {
+  background: var(--glass-bg-hover);
+  border-color: var(--glass-border-hover);
+  color: var(--text-primary);
+}
+
+.toe-textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 40px;
+  padding: 6px 8px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-family: inherit;
+}
+
+.toe-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.toe-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.toe-select {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+}
+
+.toe-size-input {
+  width: 56px;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.toe-separator {
+  width: 1px;
+  height: 20px;
+  background: var(--glass-border);
+  margin: 0 2px;
+}
+
+.toe-color-swatch {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+
+.toe-toggle-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.toe-toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.toe-toggle-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+
+.toe-range-row {
+  gap: 6px;
+}
+
+.toe-range-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.toe-range-row input[type="range"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.toe-range-value {
+  font-size: 11px;
+  color: var(--text-secondary);
+  width: 32px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.toe-time-input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--glass-border);
+  border-radius: 4px;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.toe-remove-btn {
+  width: 100%;
+  padding: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 4px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #fca5a5;
+  cursor: pointer;
+  transition: var(--transition-glass);
+}
+
+.toe-remove-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  border-color: rgba(239, 68, 68, 0.5);
 }
 
 .dialog-content {
@@ -2059,80 +2241,7 @@ textarea::placeholder {
   margin-top: 8px;
 }
 
-/* ==================== Text Preset Dialog ==================== */
-
-.text-preset-dialog {
-  max-width: 420px;
-}
-
-.text-preset-dialog h2 {
-  margin: 0 0 16px 0;
-  font-size: 16px;
-}
-
-.preset-section {
-  margin-bottom: 16px;
-}
-
-.preset-section h3 {
-  margin: 0 0 8px 0;
-  font-size: 12px;
-  color: #aaa;
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-}
-
-.preset-options {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.preset-option {
-  padding: 8px 14px;
-  border: 1px solid #444;
-  border-radius: 6px;
-  background: #2a2a2a;
-  color: #ddd;
-  font-size: 12px;
-  cursor: pointer;
-  transition: all 0.15s;
-}
-
-.preset-option:hover {
-  border-color: #666;
-  background: #333;
-}
-
-.preset-option.selected {
-  border-color: #6366f1;
-  background: #6366f122;
-  color: #a5b4fc;
-}
-
-.preset-add-btn {
-  width: 100%;
-  padding: 10px;
-  border: none;
-  border-radius: 6px;
-  background: #6366f1;
-  color: #fff;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 8px;
-}
-
-.preset-add-btn:hover {
-  background: #4f46e5;
-}
-
 /* ==================== Enhanced Text Overlay Editor ==================== */
-
-.text-overlay-editor h3 {
-  margin: 0 0 12px 0;
-  font-size: 14px;
-}
 
 .editor-section {
   margin-bottom: 12px;

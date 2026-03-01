@@ -3,12 +3,12 @@
  *
  * Coverage:
  * - "+ Text" button disabled state when no clips exist
- * - Adding a text overlay via the toolbar button
+ * - Adding a text overlay directly via + Text button
  * - Selecting an overlay to show the text overlay editor panel
  * - Editing overlay text via the textarea and verifying label update
  * - Removing an overlay via the "Remove Overlay" button
  * - Deleting an overlay via right-click context menu
- * - Adjusting font size via the range slider
+ * - Adjusting font size via the number input
  *
  * Test setup:
  * The store is exposed on `window.__editorStore` (zustand store with getState/setState).
@@ -33,13 +33,11 @@ test.describe('Editor text overlays', () => {
     await cleanupEditor(page)
   })
 
-  /** Helper: add a text overlay via the preset dialog with default settings */
-  async function addTextViaPresetDialog(page: import('@playwright/test').Page) {
+  /** Helper: add a text overlay by clicking the + Text button (direct add, no dialog) */
+  async function addTextOverlay(page: import('@playwright/test').Page) {
     const textBtn = page.locator(S.editorToolbar).locator('button').filter({ hasText: '+ Text' })
     await textBtn.click()
-    await page.locator('.text-preset-dialog').waitFor({ state: 'visible', timeout: 5000 })
-    await page.locator('.preset-add-btn').click()
-    await page.locator('.text-preset-dialog').waitFor({ state: 'hidden', timeout: 5000 })
+    await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5000 })
   }
 
   // ==================== Disabled State ====================
@@ -62,7 +60,7 @@ test.describe('Editor text overlays', () => {
 
   test('+ Text button adds a text overlay to the timeline', async ({ page }) => {
     // Click "+ Text" and add via preset dialog
-    await addTextViaPresetDialog(page)
+    await addTextOverlay(page)
 
     // Verify overlay appears in the timeline
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
@@ -74,7 +72,7 @@ test.describe('Editor text overlays', () => {
 
   test('clicking an overlay selects it and shows the text overlay editor', async ({ page }) => {
     // Add an overlay first
-    await addTextViaPresetDialog(page)
+    await addTextOverlay(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
 
     // Click on the overlay to select it
@@ -91,7 +89,7 @@ test.describe('Editor text overlays', () => {
 
   test('editing text in the overlay editor updates the timeline label', async ({ page }) => {
     // Add an overlay and select it
-    await addTextViaPresetDialog(page)
+    await addTextOverlay(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
     await page.locator(S.timelineOverlay).click()
     await expect(page.locator(S.textOverlayEditor)).toBeVisible()
@@ -109,13 +107,13 @@ test.describe('Editor text overlays', () => {
 
   test('Remove Overlay button deletes the selected overlay', async ({ page }) => {
     // Add an overlay and select it
-    await addTextViaPresetDialog(page)
+    await addTextOverlay(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
     await page.locator(S.timelineOverlay).click()
     await expect(page.locator(S.textOverlayEditor)).toBeVisible()
 
     // Click "Remove Overlay" button
-    const removeBtn = page.locator(`${S.textOverlayEditor} button`).filter({ hasText: 'Remove Overlay' })
+    const removeBtn = page.locator(`${S.textOverlayEditor} .toe-remove-btn`)
     await removeBtn.click()
 
     // Verify the overlay is removed
@@ -129,7 +127,7 @@ test.describe('Editor text overlays', () => {
 
   test('right-click context menu Delete removes the overlay', async ({ page }) => {
     // Add an overlay
-    await addTextViaPresetDialog(page)
+    await addTextOverlay(page)
     await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
 
     // Right-click on the overlay to open context menu
@@ -147,24 +145,23 @@ test.describe('Editor text overlays', () => {
     await expect(page.locator('.timeline-context-menu')).not.toBeVisible()
   })
 
-  // ==================== Font Size Slider ====================
+  // ==================== Font Size Input ====================
 
-  test('font size slider changes the displayed font size value', async ({ page }) => {
+  test('font size input changes the font size value', async ({ page }) => {
     // Add an overlay and select it
-    await addTextViaPresetDialog(page)
-    await expect(page.locator(S.timelineOverlay)).toHaveCount(1, { timeout: 5_000 })
+    await addTextOverlay(page)
     await page.locator(S.timelineOverlay).click()
     await expect(page.locator(S.textOverlayEditor)).toBeVisible()
 
-    // Locate the Font Size control group
-    const fontSizeGroup = page.locator(`${S.textOverlayEditor} ${S.controlGroup}`).filter({ hasText: 'Font Size' })
-    const rangeInput = fontSizeGroup.locator('input[type="range"]')
-    const valueSpan = fontSizeGroup.locator('span')
+    // Find the font size number input (first .toe-size-input; second may appear for animation duration)
+    const fontSizeInput = page.locator(`${S.textOverlayEditor} .toe-size-input`).first()
+    await fontSizeInput.fill('64')
 
-    // Change the font size slider to 64
-    await rangeInput.fill('64')
-
-    // Verify the displayed value updates
-    await expect(valueSpan).toHaveText('64px')
+    // Verify store has updated font size
+    const fontSize = await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      return store.getState().project.textOverlays[0].fontSize
+    })
+    expect(fontSize).toBe(64)
   })
 })
