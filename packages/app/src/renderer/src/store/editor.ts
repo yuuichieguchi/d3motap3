@@ -1427,11 +1427,23 @@ if (typeof window !== 'undefined') {
   (window as any).__editorStore = useEditorStore
 }
 
-// Track project changes to set isDirty
+// Track project changes to set isDirty & sync menu enabled state
+let _menuSyncPending = false
 useEditorStore.subscribe(
   (state, prevState) => {
     if (state.project !== prevState.project && state.currentBundlePath && !state.isDirty && !_suppressDirty) {
       useEditorStore.setState({ isDirty: true })
+    }
+    if (state.isDirty !== prevState.isDirty || state.currentBundlePath !== prevState.currentBundlePath) {
+      if (!_menuSyncPending) {
+        _menuSyncPending = true
+        queueMicrotask(() => {
+          _menuSyncPending = false
+          const { isDirty, currentBundlePath } = useEditorStore.getState()
+          const enabled = isDirty && !!currentBundlePath
+          window.api.invoke('menu:set-save-enabled', enabled).catch(() => {})
+        })
+      }
     }
   },
 )
