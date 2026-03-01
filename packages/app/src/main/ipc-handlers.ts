@@ -1,4 +1,4 @@
-import { ipcMain, dialog, app, shell } from 'electron'
+import { ipcMain, dialog, app, shell, Menu } from 'electron'
 import { join } from 'path'
 import { nativeBridge } from './native-bridge'
 
@@ -225,6 +225,12 @@ export function registerIpcHandlers(): void {
     if (!bundlePath.endsWith('.d3m')) throw new Error('Invalid bundle path')
     const { writeFile } = await import('fs/promises')
     await writeFile(join(bundlePath, 'editor.json'), jsonContent, 'utf-8')
+  })
+
+  ipcMain.handle('menu:set-save-enabled', (_event, enabled: boolean) => {
+    const menu = Menu.getApplicationMenu()
+    const item = menu?.getMenuItemById('save-project')
+    if (item) item.enabled = enabled
   })
 
   ipcMain.handle('editor:load-project', async (_event, bundlePath: string) => {

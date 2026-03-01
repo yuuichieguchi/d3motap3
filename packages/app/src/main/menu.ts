@@ -32,8 +32,10 @@ export function setupApplicationMenu(getMainWindow: () => BrowserWindow | null):
         },
         { type: 'separator' },
         {
+          id: 'save-project',
           label: 'Save Project',
           accelerator: 'CmdOrCtrl+S',
+          enabled: false,
           click: (): void => {
             const win = getMainWindow()
             if (win) win.webContents.send('menu:save-project')

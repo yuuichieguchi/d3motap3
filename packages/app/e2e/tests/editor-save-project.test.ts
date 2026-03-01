@@ -261,4 +261,87 @@ test.describe('Save / Load Project', () => {
     // Screenshot evidence
     await page.screenshot({ path: path.join(VIDEO_DIR, 'save-project-03-new-project.png') })
   })
+
+  test('Save Project menu is disabled when clean, enabled when dirty', async ({ electronApp, page }: any) => {
+    // Navigate to editor tab
+    await page.locator('.header-tab').filter({ hasText: 'Editor' }).click()
+    await page.waitForTimeout(300)
+
+    // Step 1: Load project via loadSavedProject (uses _suppressDirty internally)
+    // This is the proper way to set up a "clean" editor state with isDirty: false
+    await page.evaluate(async (bundlePath: string) => {
+      const store = (window as any).__editorStore
+      await store.getState().loadSavedProject(bundlePath, {
+        version: 1,
+        savedAt: new Date().toISOString(),
+        project: {
+          clips: [{
+            id: 'clip-1',
+            sourcePath: 'bundle.mp4',
+            originalDuration: 3000,
+            trimStart: 0,
+            trimEnd: 0,
+            order: 0,
+          }],
+          textOverlays: [],
+          independentAudioTracks: [],
+          outputWidth: 1920,
+          outputHeight: 1080,
+        },
+      })
+    }, TEST_BUNDLE)
+
+    await page.waitForTimeout(500)
+
+    // Verify isDirty is false and Save Project menu is disabled
+    const disabledWhenClean = await electronApp.evaluate(({ Menu }: any) => {
+      return Menu.getApplicationMenu()?.getMenuItemById('save-project')?.enabled
+    })
+    expect(disabledWhenClean).toBe(false)
+
+    // Step 2: Make a project change to trigger isDirty via the subscribe handler
+    await page.evaluate(() => {
+      const store = (window as any).__editorStore
+      const state = store.getState()
+      store.setState({
+        project: { ...state.project, outputWidth: 1280 },
+      })
+    })
+
+    // Wait for IPC to propagate the dirty state to the main process menu
+    await page.waitForTimeout(500)
+
+    // isDirty should now be true and Save Project menu should be enabled
+    const enabledWhenDirty = await electronApp.evaluate(({ Menu }: any) => {
+      return Menu.getApplicationMenu()?.getMenuItemById('save-project')?.enabled
+    })
+    expect(enabledWhenDirty).toBe(true)
+
+    // Screenshot evidence: menu enabled state
+    fs.mkdirSync(VIDEO_DIR, { recursive: true })
+    await page.screenshot({ path: path.join(VIDEO_DIR, 'save-project-04-menu-enabled-dirty.png') })
+
+    // Step 3: Trigger save via menu:save-project IPC
+    await electronApp.evaluate(({ BrowserWindow }: any) => {
+      const win = BrowserWindow.getAllWindows()[0]
+      win.webContents.send('menu:save-project')
+    })
+
+    // Wait for save to complete
+    await page.waitForTimeout(1000)
+
+    // After save, isDirty should be false and menu should be disabled again
+    const isDirtyAfterSave = await page.evaluate(() => {
+      return (window as any).__editorStore.getState().isDirty
+    })
+    expect(isDirtyAfterSave).toBe(false)
+
+    const disabledAfterSave = await electronApp.evaluate(({ Menu }: any) => {
+      return Menu.getApplicationMenu()?.getMenuItemById('save-project')?.enabled
+    })
+    expect(disabledAfterSave).toBe(false)
+
+    // Screenshot evidence: menu disabled after save
+    await page.screenshot({ path: path.join(VIDEO_DIR, 'save-project-05-menu-disabled-after-save.png') })
+  })
 })
