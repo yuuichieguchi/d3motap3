@@ -7,6 +7,13 @@ export function setupApplicationMenu(getMainWindow: () => BrowserWindow | null):
       label: 'File',
       submenu: [
         {
+          label: 'New Project',
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:new-project')
+          }
+        },
+        {
           label: 'Open Project...',
           accelerator: 'CmdOrCtrl+O',
           click: async (): Promise<void> => {
@@ -23,6 +30,24 @@ export function setupApplicationMenu(getMainWindow: () => BrowserWindow | null):
             win.webContents.send('open-bundle', result.filePaths[0])
           }
         },
+        { type: 'separator' },
+        {
+          label: 'Save Project',
+          accelerator: 'CmdOrCtrl+S',
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:save-project')
+          }
+        },
+        {
+          label: 'Export...',
+          accelerator: 'CmdOrCtrl+E',
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:export')
+          }
+        },
+        { type: 'separator' },
         {
           label: 'Import Media...',
           accelerator: 'CmdOrCtrl+Shift+I',

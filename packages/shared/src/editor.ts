@@ -86,3 +86,9 @@ export type EditorExportStatus =
   | { status: 'exporting'; progress: number }
   | { status: 'completed'; progress: number }
   | { status: 'failed'; progress: number; error: string }
+
+export interface EditorSaveData {
+  version: number
+  savedAt: string
+  project: EditorProject
+}

@@ -22,6 +22,7 @@ mac:
       name: d3motap3 Project
       role: Editor
       isPackage: true
+      icon: build/icon
 dmg:
   artifactName: "${productName}-${version}-arm64.${ext}"
 afterPack: scripts/afterPack.cjs

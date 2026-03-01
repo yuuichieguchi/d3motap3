@@ -350,6 +350,25 @@ export function EditorView() {
     }
   }, [store])
 
+  // Save Project menu handler
+  useEffect(() => {
+    const unsubscribe = window.api.on('menu:save-project', () => {
+      const s = useEditorStore.getState()
+      if (s.currentBundlePath) {
+        s.saveProject()
+      }
+    })
+    return unsubscribe
+  }, [])
+
+  // Export menu handler
+  useEffect(() => {
+    const unsubscribe = window.api.on('menu:export', () => {
+      handleExport()
+    })
+    return unsubscribe
+  }, [handleExport])
+
   const [isDragOver, setIsDragOver] = useState(false)
 
   const handleDragOver = useCallback((e: React.DragEvent) => {

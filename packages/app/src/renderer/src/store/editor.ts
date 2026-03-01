@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { temporal } from 'zundo'
-import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject, IndependentAudioTrack, IndependentAudioClip, PcmFormat } from '@d3motap3/shared'
+import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject, IndependentAudioTrack, IndependentAudioClip, PcmFormat, EditorSaveData } from '@d3motap3/shared'
 
 let nextClipId = 1
 let nextOverlayId = 1
@@ -8,6 +8,7 @@ let nextAudioTrackId = 1
 let nextAudioClipId = 1
 
 let _userSeek = false
+let _suppressDirty = false
 
 export function consumeUserSeek(): boolean {
   const v = _userSeek
@@ -50,6 +51,8 @@ interface EditorState {
   selectedAudioClipIds: string[]
   lastSelectedAudioClipId: string | null
   clipboardAudioClips: AudioClipboardEntry[] | null
+  currentBundlePath: string | null
+  isDirty: boolean
 
   // Project actions
   setOutputResolution: (w: number, h: number) => void
@@ -125,6 +128,10 @@ interface EditorState {
   
   // Reset
   reset: () => void
+
+  // Save/Load
+  saveProject: () => Promise<void>
+  loadSavedProject: (bundlePath: string, savedData: EditorSaveData) => Promise<void>
 }
 
 export const useEditorStore = create<EditorState>()(
@@ -153,6 +160,8 @@ export const useEditorStore = create<EditorState>()(
   selectedAudioClipIds: [],
   lastSelectedAudioClipId: null,
   clipboardAudioClips: null,
+  currentBundlePath: null,
+  isDirty: false,
 
   setOutputResolution: (w, h) => set((state) => ({
     project: { ...state.project, outputWidth: w, outputHeight: h },
@@ -251,6 +260,7 @@ export const useEditorStore = create<EditorState>()(
             ],
           },
           clipMetadata: newMetadata,
+          ...(bundlePath ? { currentBundlePath: bundlePath } : {}),
         }
       })
 
@@ -1226,6 +1236,136 @@ export const useEditorStore = create<EditorState>()(
     }, 0)
   },
 
+  saveProject: async () => {
+    const { currentBundlePath, project } = get()
+    if (!currentBundlePath) return
+
+    // Convert absolute paths to relative (bundle-relative)
+    const bundlePrefix = currentBundlePath + '/'
+    const toRelative = (p: string) => p.startsWith(bundlePrefix) ? p.slice(bundlePrefix.length) : p
+
+    const saveProject: EditorProject = {
+      ...project,
+      clips: project.clips.map((c) => ({
+        ...c,
+        sourcePath: toRelative(c.sourcePath),
+        bundlePath: undefined,
+      })),
+      independentAudioTracks: project.independentAudioTracks.map((t) => ({
+        ...t,
+        clips: t.clips.map((ac) => ({
+          ...ac,
+          sourcePath: toRelative(ac.sourcePath),
+        })),
+      })),
+    }
+
+    const saveData: EditorSaveData = {
+      version: 1,
+      savedAt: new Date().toISOString(),
+      project: saveProject,
+    }
+
+    await window.api.invoke('editor:save-project', currentBundlePath, JSON.stringify(saveData, null, 2))
+    set({ isDirty: false })
+  },
+
+  loadSavedProject: async (bundlePath: string, savedData: EditorSaveData) => {
+    _suppressDirty = true
+    try {
+      const bundlePrefix = bundlePath + '/'
+      const toAbsolute = (p: string) => p.startsWith('/') ? p : bundlePrefix + p
+
+      const restoredProject: EditorProject = {
+        ...savedData.project,
+        clips: savedData.project.clips.map((c, i) => ({
+          ...c,
+          sourcePath: toAbsolute(c.sourcePath),
+          bundlePath: c.sourcePath.startsWith('/') ? undefined : bundlePath,
+          order: c.order ?? i,
+        })),
+        independentAudioTracks: savedData.project.independentAudioTracks.map((t) => ({
+          ...t,
+          clips: t.clips.map((ac) => ({
+            ...ac,
+            sourcePath: toAbsolute(ac.sourcePath),
+          })),
+        })),
+      }
+
+      // Update nextId counters to avoid collisions
+      const allClipIds = restoredProject.clips.map((c) => c.id)
+      const allOverlayIds = restoredProject.textOverlays.map((o) => o.id)
+      const allTrackIds = restoredProject.independentAudioTracks.map((t) => t.id)
+      const allAudioClipIds = restoredProject.independentAudioTracks.flatMap((t) => t.clips.map((c) => c.id))
+
+      const maxNum = (ids: string[], prefix: string) => {
+        let max = 0
+        for (const id of ids) {
+          if (id.startsWith(prefix)) {
+            const n = parseInt(id.slice(prefix.length), 10)
+            if (!isNaN(n) && n > max) max = n
+          }
+        }
+        return max
+      }
+
+      nextClipId = maxNum(allClipIds, 'clip-') + 1
+      nextOverlayId = maxNum(allOverlayIds, 'overlay-') + 1
+      nextAudioTrackId = maxNum(allTrackIds, 'audio-track-') + 1
+      nextAudioClipId = maxNum(allAudioClipIds, 'audio-clip-') + 1
+
+      // Probe video metadata for all clips
+      const newMetadata = new Map<string, VideoMetadata>()
+      for (const clip of restoredProject.clips) {
+        try {
+          const meta = await window.api.invoke('editor:probe', clip.sourcePath) as VideoMetadata
+          newMetadata.set(clip.id, meta)
+        } catch {
+          // If probe fails, use reasonable defaults from saved data
+        }
+      }
+
+      set({
+        project: restoredProject,
+        currentBundlePath: bundlePath,
+        isDirty: false,
+        clipMetadata: newMetadata,
+        clipThumbnails: new Map(),
+        selectedClipIds: [],
+        lastSelectedClipId: null,
+        selectedOverlayId: null,
+        selectedAudioClipIds: [],
+        lastSelectedAudioClipId: null,
+        currentTimeMs: 0,
+        isPlaying: false,
+      })
+
+      useEditorStore.temporal.getState().clear()
+    } finally {
+      _suppressDirty = false
+    }
+
+    // Generate thumbnails in background for all clips
+    for (const clip of get().project.clips) {
+      try {
+        const thumbWidth = Math.min(Math.round(320 * window.devicePixelRatio), 640)
+        const thumbBuffers = await window.api.invoke('editor:thumbnails', clip.sourcePath, 10, thumbWidth) as ArrayBuffer[]
+        const thumbUrls = thumbBuffers.map((buf) => {
+          const blob = new Blob([buf], { type: 'image/jpeg' })
+          return URL.createObjectURL(blob)
+        })
+        set((state) => {
+          const newThumbs = new Map(state.clipThumbnails)
+          newThumbs.set(clip.id, thumbUrls)
+          return { clipThumbnails: newThumbs }
+        })
+      } catch {
+        // Thumbnails are optional
+      }
+    }
+  },
+
   reset: () => {
     get().stopExportPolling()
     // Revoke all thumbnail URLs
@@ -1259,6 +1399,8 @@ export const useEditorStore = create<EditorState>()(
       punchInStartMs: 0,
       clipboardClips: null,
       clipboardAudioClips: null,
+      currentBundlePath: null,
+      isDirty: false,
     })
     useEditorStore.temporal.getState().clear()
   },
@@ -1284,3 +1426,12 @@ export const useEditorStore = create<EditorState>()(
 if (typeof window !== 'undefined') {
   (window as any).__editorStore = useEditorStore
 }
+
+// Track project changes to set isDirty
+useEditorStore.subscribe(
+  (state, prevState) => {
+    if (state.project !== prevState.project && state.currentBundlePath && !state.isDirty && !_suppressDirty) {
+      useEditorStore.setState({ isDirty: true })
+    }
+  },
+)
