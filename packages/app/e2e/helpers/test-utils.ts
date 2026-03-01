@@ -128,6 +128,10 @@ export async function setupEditorWithClips(
       currentTimeMs: 0,
       isPlaying: false,
     })
+    // Clear undo history so test setup state is not undoable
+    if (store.temporal) {
+      store.temporal.getState().clear()
+    }
   }, clipData)
 
   await expect(page.locator(S.timelineClip)).toHaveCount(clipData.length, { timeout: 5_000 })

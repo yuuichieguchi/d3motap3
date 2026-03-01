@@ -17,6 +17,7 @@
   "dependencies": {
     "@d3motap3/core": "workspace:*",
     "@d3motap3/shared": "workspace:*",
+    "zundo": "^2.3.0",
     "zustand": "^5.0.0"
   },
   "devDependencies": {
