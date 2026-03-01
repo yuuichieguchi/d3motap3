@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { temporal } from 'zundo'
 import type { EditorProject, EditorClip, TextOverlay, VideoMetadata, EditorExportStatus, AudioTrack, MixerSettings, D3mProject, IndependentAudioTrack, IndependentAudioClip, PcmFormat } from '@d3motap3/shared'
 
 let nextClipId = 1
@@ -124,7 +125,9 @@ interface EditorState {
   reset: () => void
 }
 
-export const useEditorStore = create<EditorState>((set, get) => ({
+export const useEditorStore = create<EditorState>()(
+  temporal(
+    (set, get) => ({
   project: {
     clips: [],
     textOverlays: [],
@@ -1191,8 +1194,26 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       clipboardClips: null,
       clipboardAudioClips: null,
     })
+    useEditorStore.temporal.getState().clear()
   },
-}))
+    }),
+    {
+      partialize: (state) => ({
+        project: state.project,
+        selectedClipIds: state.selectedClipIds,
+        lastSelectedClipId: state.lastSelectedClipId,
+        selectedOverlayId: state.selectedOverlayId,
+        selectedAudioClipIds: state.selectedAudioClipIds,
+        lastSelectedAudioClipId: state.lastSelectedAudioClipId,
+      }),
+      limit: 50,
+      // Only track project data changes — selection-only changes (selectClip etc.)
+      // should not create undo entries, but selection state IS restored alongside
+      // project changes because it's included in partialize.
+      equality: (past, current) => past.project === current.project,
+    },
+  ),
+)
 
 if (typeof window !== 'undefined') {
   (window as any).__editorStore = useEditorStore

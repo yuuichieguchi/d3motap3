@@ -172,6 +172,12 @@ export function EditorView() {
         case 'delete':
           deleteSelected()
           break
+        case 'undo':
+          useEditorStore.temporal.getState().undo()
+          break
+        case 'redo':
+          useEditorStore.temporal.getState().redo()
+          break
       }
     })
     return unsubscribe
@@ -221,6 +227,14 @@ export function EditorView() {
         case 'b':
           e.preventDefault()
           useEditorStore.getState().splitAtPlayhead()
+          break
+        case 'z':
+          e.preventDefault()
+          if (e.shiftKey) {
+            useEditorStore.temporal.getState().redo()
+          } else {
+            useEditorStore.temporal.getState().undo()
+          }
           break
       }
     }

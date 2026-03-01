@@ -47,8 +47,24 @@ export function setupApplicationMenu(getMainWindow: () => BrowserWindow | null):
     {
       label: 'Edit',
       submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
+        {
+          label: 'Undo',
+          accelerator: 'CmdOrCtrl+Z',
+          registerAccelerator: false,
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'undo')
+          }
+        },
+        {
+          label: 'Redo',
+          accelerator: 'CmdOrCtrl+Shift+Z',
+          registerAccelerator: false,
+          click: (): void => {
+            const win = getMainWindow()
+            if (win) win.webContents.send('menu:edit-action', 'redo')
+          }
+        },
         { type: 'separator' },
         {
           label: 'Cut',
