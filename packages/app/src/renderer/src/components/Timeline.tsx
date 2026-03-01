@@ -169,6 +169,86 @@ export function Timeline({ getAudioContext }: TimelineProps = {}) {
     [],
   )
 
+  // Overlay drag/trim refs
+  const overlayTrackRef = useRef<HTMLDivElement>(null)
+
+  const handleOverlayMoveStart = useCallback(
+    (e: React.MouseEvent, overlayId: string) => {
+      if (e.button !== 0) return
+      const target = e.target as HTMLElement
+      if (target.classList.contains('overlay-trim-handle')) return
+
+      e.preventDefault()
+      e.stopPropagation()
+
+      const overlay = store.project.textOverlays.find((o) => o.id === overlayId)
+      if (!overlay || !overlayTrackRef.current) return
+
+      const rowRect = overlayTrackRef.current.getBoundingClientRect()
+      const startX = e.clientX
+      const startMs = overlay.startTime
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const dx = moveEvent.clientX - startX
+        const msPerPx = totalDuration / rowRect.width
+        const newStartMs = Math.max(0, startMs + dx * msPerPx)
+        useEditorStore.getState().moveTextOverlay(overlayId, newStartMs)
+      }
+
+      const handleMouseUp = () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+        document.body.style.cursor = ''
+      }
+
+      document.body.style.cursor = 'grabbing'
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+    },
+    [store, totalDuration],
+  )
+
+  const handleOverlayTrimStart = useCallback(
+    (e: React.MouseEvent, overlayId: string, side: 'left' | 'right') => {
+      if (e.button !== 0) return
+      e.preventDefault()
+      e.stopPropagation()
+
+      const overlay = store.project.textOverlays.find((o) => o.id === overlayId)
+      if (!overlay || !overlayTrackRef.current) return
+
+      const rowRect = overlayTrackRef.current.getBoundingClientRect()
+      const startX = e.clientX
+      const origStartTime = overlay.startTime
+      const origEndTime = overlay.endTime
+
+      const handleMouseMove = (moveEvent: MouseEvent) => {
+        const dx = moveEvent.clientX - startX
+        const msPerPx = totalDuration / rowRect.width
+        const deltaMs = dx * msPerPx
+
+        if (side === 'left') {
+          const newStart = Math.max(0, Math.min(origEndTime - 100, origStartTime + deltaMs))
+          useEditorStore.getState().trimTextOverlay(overlayId, newStart, origEndTime)
+        } else {
+          const newEnd = Math.max(origStartTime + 100, origEndTime + deltaMs)
+          useEditorStore.getState().trimTextOverlay(overlayId, origStartTime, newEnd)
+        }
+      }
+
+      const handleMouseUp = () => {
+        window.removeEventListener('mousemove', handleMouseMove)
+        window.removeEventListener('mouseup', handleMouseUp)
+        document.body.style.cursor = ''
+      }
+
+      document.body.style.cursor = 'col-resize'
+      window.addEventListener('mousemove', handleMouseMove)
+      window.addEventListener('mouseup', handleMouseUp)
+    },
+    [store, totalDuration],
+  )
+
   const handleTimelineContextMenu = useCallback(
     (e: React.MouseEvent) => {
       // Don't fire if the right-click was on a clip, overlay, or audio element
@@ -409,7 +489,7 @@ export function Timeline({ getAudioContext }: TimelineProps = {}) {
           <div className="timeline-row-label">
             <span>Text</span>
           </div>
-          <div className="timeline-row-content" style={{ position: 'relative' }}>
+          <div className="timeline-row-content" ref={overlayTrackRef} style={{ position: 'relative' }}>
             {overlays.map((overlay) => {
               const left =
                 totalDuration > 0 ? (overlay.startTime / totalDuration) * 100 : 0;
@@ -423,8 +503,9 @@ export function Timeline({ getAudioContext }: TimelineProps = {}) {
                 <div
                   key={overlay.id}
                   className={`timeline-overlay ${isSelected ? "selected" : ""}`}
-                  style={{ left: `${left}%`, width: `${width}%` }}
-                  onClick={() => handleOverlayClick(overlay.id)}
+                  style={{ left: `${left}%`, width: `${width}%`, position: 'absolute', height: '100%' }}
+                  onClick={(e) => { e.stopPropagation(); handleOverlayClick(overlay.id) }}
+                  onMouseDown={(e) => handleOverlayMoveStart(e, overlay.id)}
                   onContextMenu={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
@@ -438,7 +519,15 @@ export function Timeline({ getAudioContext }: TimelineProps = {}) {
                   }}
                   title={`"${overlay.text}" (${Math.round(overlay.startTime)}ms - ${Math.round(overlay.endTime)}ms)`}
                 >
+                  <div
+                    className="overlay-trim-handle left"
+                    onMouseDown={(e) => handleOverlayTrimStart(e, overlay.id, 'left')}
+                  />
                   <span className="overlay-text-label">{overlay.text}</span>
+                  <div
+                    className="overlay-trim-handle right"
+                    onMouseDown={(e) => handleOverlayTrimStart(e, overlay.id, 'right')}
+                  />
                 </div>
               );
             })}

@@ -354,7 +354,37 @@ pub struct TextOverlay {
     pub y: f64,
     pub font_size: u32,
     pub color: String,
+    #[serde(default = "default_font_family")]
+    pub font_family: String,
+    #[serde(default = "default_normal")]
+    pub font_weight: String,
+    #[serde(default = "default_normal")]
+    pub font_style: String,
+    #[serde(default = "default_center")]
+    pub text_align: String,
+    #[serde(default)]
+    pub background_color: Option<String>,
+    #[serde(default)]
+    pub border_color: Option<String>,
+    #[serde(default)]
+    pub border_width: f64,
+    #[serde(default)]
+    pub shadow_color: Option<String>,
+    #[serde(default)]
+    pub shadow_offset_x: f64,
+    #[serde(default)]
+    pub shadow_offset_y: f64,
+    #[serde(default = "default_none")]
+    pub animation: String,
+    #[serde(default = "default_animation_duration")]
+    pub animation_duration: f64,
 }
+
+fn default_font_family() -> String { "sans-serif".to_string() }
+fn default_normal() -> String { "normal".to_string() }
+fn default_center() -> String { "center".to_string() }
+fn default_none() -> String { "none".to_string() }
+fn default_animation_duration() -> f64 { 500.0 }
 
 // ---------------------------------------------------------------------------
 // Audio bundle data structures
@@ -675,8 +705,7 @@ pub fn build_filter_complex(project: &EditorProject, clip_has_audio: &[bool]) ->
     for (i, overlay) in project.text_overlays.iter().enumerate() {
         let start_s = overlay.start_time / 1000.0;
         let end_s = overlay.end_time / 1000.0;
-        let x_expr = format!("(w*{:.4})", overlay.x);
-        let y_expr = format!("(h*{:.4})", overlay.y);
+        let anim_dur_s = overlay.animation_duration / 1000.0;
         let out_label = format!("txt{}", i);
 
         // Escape text for FFmpeg drawtext: single quotes and backslashes.
@@ -686,16 +715,101 @@ pub fn build_filter_complex(project: &EditorProject, clip_has_audio: &[bool]) ->
             .replace('\'', "'\\''")
             .replace(':', "\\:");
 
+        // Map font family
+        let font = match overlay.font_family.as_str() {
+            "sans-serif" => "Arial",
+            "serif" => "Georgia",
+            "monospace" => "Courier New",
+            other => other,
+        };
+
+        // Font name with style suffix for drawtext
+        let font_with_style = match (overlay.font_weight.as_str(), overlay.font_style.as_str()) {
+            ("bold", "italic") => format!("{} Bold Italic", font),
+            ("bold", _) => format!("{} Bold", font),
+            (_, "italic") => format!("{} Italic", font),
+            _ => font.to_string(),
+        };
+
+        // X expression based on text alignment
+        let x_expr = match overlay.text_align.as_str() {
+            "left" => format!("(w*{:.4})", overlay.x),
+            "right" => format!("(w*{:.4}-tw)", overlay.x),
+            _ => format!("(w*{:.4}-tw/2)", overlay.x), // center
+        };
+
+        let y_expr = format!("(h*{:.4})", overlay.y);
+
+        // Alpha expression for fade animations
+        let alpha_expr = match overlay.animation.as_str() {
+            "fade-in" => format!(
+                "if(lt(t-{:.3},{:.3}),(t-{:.3})/{:.3},1)",
+                start_s, anim_dur_s, start_s, anim_dur_s
+            ),
+            "fade-out" => format!(
+                "if(gt(t,{:.3}-{:.3}),({:.3}-t)/{:.3},1)",
+                end_s, anim_dur_s, end_s, anim_dur_s
+            ),
+            "fade-in-out" => format!(
+                "if(lt(t-{:.3},{:.3}),(t-{:.3})/{:.3},if(gt(t,{:.3}-{:.3}),({:.3}-t)/{:.3},1))",
+                start_s, anim_dur_s, start_s, anim_dur_s,
+                end_s, anim_dur_s, end_s, anim_dur_s
+            ),
+            _ => String::new(),
+        };
+
+        // Y expression with slide animation
+        let final_y_expr = match overlay.animation.as_str() {
+            "slide-up" => format!(
+                "if(lt(t-{:.3},{:.3}),{}+50*(1-(t-{:.3})/{:.3}),{})",
+                start_s, anim_dur_s, y_expr, start_s, anim_dur_s, y_expr
+            ),
+            "slide-down" => format!(
+                "if(lt(t-{:.3},{:.3}),{}-50*(1-(t-{:.3})/{:.3}),{})",
+                start_s, anim_dur_s, y_expr, start_s, anim_dur_s, y_expr
+            ),
+            _ => y_expr.clone(),
+        };
+
+        // Build the drawtext filter
+        let mut params = vec![
+            format!("text='{}'", escaped_text),
+            format!("font='{}'", font_with_style),
+            format!("fontsize={}", overlay.font_size),
+            format!("fontcolor={}", overlay.color.replace(':', "\\:")),
+            format!("x={}", x_expr),
+            format!("y={}", final_y_expr),
+            format!("enable='between(t,{:.3},{:.3})'", start_s, end_s),
+        ];
+
+        if !alpha_expr.is_empty() {
+            params.push(format!("alpha='{}'", alpha_expr));
+        }
+
+        // Shadow
+        if let Some(ref sc) = overlay.shadow_color {
+            params.push(format!("shadowcolor={}", sc.replace(':', "\\:")));
+            params.push(format!("shadowx={}", overlay.shadow_offset_x as i32));
+            params.push(format!("shadowy={}", overlay.shadow_offset_y as i32));
+        }
+
+        // Border (text stroke)
+        if let Some(ref bc) = overlay.border_color {
+            params.push(format!("borderw={}", overlay.border_width as i32));
+            params.push(format!("bordercolor={}", bc.replace(':', "\\:")));
+        }
+
+        // Background box
+        if let Some(ref bg) = overlay.background_color {
+            params.push("box=1".to_string());
+            params.push(format!("boxcolor={}", bg.replace(':', "\\:")));
+            params.push("boxborderw=4".to_string());
+        }
+
         filters.push(format!(
-            "[{}]drawtext=text='{}':fontsize={}:fontcolor={}:x={}:y={}:enable='between(t,{:.3},{:.3})'[{}]",
+            "[{}]drawtext={}[{}]",
             current_label,
-            escaped_text,
-            overlay.font_size,
-            overlay.color,
-            x_expr,
-            y_expr,
-            start_s,
-            end_s,
+            params.join(":"),
             out_label,
         ));
         current_label = out_label;
@@ -1447,6 +1561,18 @@ mod tests {
                 y: 0.9,
                 font_size: 48,
                 color: "#ffffff".to_string(),
+                font_family: default_font_family(),
+                font_weight: default_normal(),
+                font_style: default_normal(),
+                text_align: default_center(),
+                background_color: None,
+                border_color: None,
+                border_width: 0.0,
+                shadow_color: None,
+                shadow_offset_x: 0.0,
+                shadow_offset_y: 0.0,
+                animation: default_none(),
+                animation_duration: default_animation_duration(),
             }],
             independent_audio_tracks: vec![],
             output_width: 1920,
@@ -1455,10 +1581,12 @@ mod tests {
 
         let clip_has_audio = [false];
         let result = build_filter_complex(&project, &clip_has_audio).expect("build with text");
-        assert!(result.filter_complex.contains("drawtext=text='Hello'"));
-        assert!(result.filter_complex.contains("fontsize=48"));
-        assert!(result.filter_complex.contains("fontcolor=#ffffff"));
-        assert!(result.filter_complex.contains("enable='between(t,1.000,3.000)'"));
+        assert!(result.filter_complex.contains("drawtext=text='Hello'"), "filter_complex: {}", result.filter_complex);
+        assert!(result.filter_complex.contains("fontsize=48"), "filter_complex: {}", result.filter_complex);
+        assert!(result.filter_complex.contains("fontcolor=#ffffff"), "filter_complex: {}", result.filter_complex);
+        assert!(result.filter_complex.contains("enable='between(t,1.000,3.000)'"), "filter_complex: {}", result.filter_complex);
+        assert!(result.filter_complex.contains("font='Arial'"), "filter_complex: {}", result.filter_complex);
+        assert!(result.filter_complex.contains("x=(w*0.5000-tw/2)"), "filter_complex: {}", result.filter_complex);
         assert_eq!(result.output_label, "[txt0]");
     }
 
