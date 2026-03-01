@@ -443,7 +443,7 @@ export function EditorView() {
       )}
 
       {/* Timeline */}
-      <Timeline />
+      <Timeline getAudioContext={getSharedAudioContext} />
 
       {/* Text overlay editor */}
       <TextOverlayEditor />

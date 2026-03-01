@@ -1,13 +1,57 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { useEditorStore } from "../store/editor";
 import { AudioTrackRow } from './AudioTrackRow'
+import { WaveformCanvas } from './WaveformCanvas'
+import { useWaveformData } from '../hooks/useWaveformData'
 
-export function Timeline() {
+interface TimelineProps {
+  getAudioContext?: () => AudioContext
+}
+
+export function Timeline({ getAudioContext }: TimelineProps = {}) {
   const store = useEditorStore();
-  const clips = [...store.project.clips].sort((a, b) => a.order - b.order);
+  const clips = useMemo(
+    () => [...store.project.clips].sort((a, b) => a.order - b.order),
+    [store.project.clips]
+  );
   const totalDuration = store.totalDuration();
   const overlays = store.project.textOverlays;
+
+  // Collect independent audio clip inputs for waveform data
+  const independentClipInputs = useMemo(() =>
+    store.project.independentAudioTracks.flatMap(t =>
+      t.clips.map(c => ({
+        clipId: c.id,
+        sourcePath: c.sourcePath,
+        pcmFormat: c.pcmFormat ? { sampleRate: c.pcmFormat.sampleRate, channels: c.pcmFormat.channels } : undefined,
+      }))
+    ),
+    [store.project.independentAudioTracks]
+  )
+
+  // Collect bundle audio clip inputs for waveform data
+  const bundleClipInputs = useMemo(() => {
+    const inputs: { clipId: string; sourcePath: string; pcmFormat: { sampleRate: number; channels: number } }[] = []
+    for (const c of clips) {
+      if (!c.bundlePath || !c.audioTracks) continue
+      for (const t of c.audioTracks) {
+        for (const ac of t.clips) {
+          inputs.push({
+            clipId: `${c.id}:${t.id}`,
+            sourcePath: `${c.bundlePath}/tracks/${ac.filename}`,
+            pcmFormat: { sampleRate: t.format.sampleRate, channels: t.format.channels },
+          })
+        }
+      }
+    }
+    return inputs
+  }, [clips])
+
+  const hasAnyAudioClips = independentClipInputs.length > 0 || bundleClipInputs.length > 0
+  const audioCtx = hasAnyAudioClips && getAudioContext ? getAudioContext() : null
+  const independentWaveformData = useWaveformData(independentClipInputs, audioCtx)
+  const bundleWaveformData = useWaveformData(bundleClipInputs, audioCtx)
 
   // Context menu state
   const [contextMenu, setContextMenu] = useState<{
@@ -325,11 +369,18 @@ export function Timeline() {
                   if (!hasTrack) return <div key={c.id} style={{ width: `${width}%` }} />
                   const trackMuted = c.mixerSettings?.tracks.find((s) => s.trackId === track.id)?.muted
                   return (
-                    <div key={c.id} style={{ width: `${width}%` }}>
+                    <div key={c.id} style={{ width: `${width}%`, position: 'relative' }}>
                       <div
                         className={`audio-track-bar ${track.type} ${trackMuted ? 'muted' : ''}`}
                         style={{ width: '100%', height: '100%' }}
-                      />
+                      >
+                        {bundleWaveformData.get(`${c.id}:${track.id}`) && (
+                          <WaveformCanvas
+                            peaks={bundleWaveformData.get(`${c.id}:${track.id}`)!}
+                            color={track.type === 'system' ? 'rgba(99, 102, 241, 0.8)' : 'rgba(34, 197, 94, 0.8)'}
+                          />
+                        )}
+                      </div>
                     </div>
                   )
                 })}
@@ -347,6 +398,7 @@ export function Timeline() {
           totalDuration={totalDuration}
           onContextMenu={handleAudioContextMenu}
           onTrackContextMenu={handleTrackEmptyContextMenu}
+          waveformData={independentWaveformData}
         />
       ))}
 

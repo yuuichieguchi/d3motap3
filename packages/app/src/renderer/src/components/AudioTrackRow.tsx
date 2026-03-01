@@ -1,15 +1,17 @@
 import { useCallback, useRef } from 'react'
 import { useEditorStore } from '../store/editor'
 import type { IndependentAudioTrack } from '@d3motap3/shared'
+import { WaveformCanvas } from './WaveformCanvas'
 
 interface AudioTrackRowProps {
   track: IndependentAudioTrack
   totalDuration: number
   onContextMenu: (e: React.MouseEvent, clipId: string, trackId: string) => void
   onTrackContextMenu?: (e: React.MouseEvent, trackId: string) => void
+  waveformData?: Map<string, Float32Array>
 }
 
-export function AudioTrackRow({ track, totalDuration, onContextMenu, onTrackContextMenu }: AudioTrackRowProps) {
+export function AudioTrackRow({ track, totalDuration, onContextMenu, onTrackContextMenu, waveformData }: AudioTrackRowProps) {
   const store = useEditorStore()
   const rowRef = useRef<HTMLDivElement>(null)
 
@@ -159,6 +161,14 @@ export function AudioTrackRow({ track, totalDuration, onContextMenu, onTrackCont
               }}
               title={`${clip.sourcePath.split('/').pop()} (${Math.round(clipDuration)}ms)`}
             >
+              {waveformData?.get(clip.id) && (
+                <WaveformCanvas
+                  peaks={waveformData.get(clip.id)!}
+                  color="rgba(245, 158, 11, 0.8)"
+                  trimStartRatio={clip.originalDuration > 0 ? clip.trimStart / clip.originalDuration : 0}
+                  trimEndRatio={clip.originalDuration > 0 ? 1 - clip.trimEnd / clip.originalDuration : 1}
+                />
+              )}
               <div
                 className="trim-handle left"
                 onMouseDown={(e) => handleTrimStart(e, clip.id, 'left')}
