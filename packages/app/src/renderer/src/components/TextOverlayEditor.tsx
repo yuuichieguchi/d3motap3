@@ -2,10 +2,10 @@ import { useCallback } from 'react'
 import { useEditorStore } from '../store/editor'
 
 const POSITION_PRESETS = [
-  { label: 'Title', x: 0.5, y: 0.45, textAlign: 'center' as const },
-  { label: 'Lower 3rd', x: 0.05, y: 0.82, textAlign: 'left' as const },
-  { label: 'Subtitle', x: 0.5, y: 0.9, textAlign: 'center' as const },
-  { label: 'Top', x: 0.5, y: 0.08, textAlign: 'center' as const },
+  { label: 'Title', x: 0, y: 0.45, width: 1, textAlign: 'center' as const },
+  { label: 'Lower 3rd', x: 0.03, y: 0.82, width: 0.5, textAlign: 'left' as const },
+  { label: 'Subtitle', x: 0, y: 0.9, width: 1, textAlign: 'center' as const },
+  { label: 'Top', x: 0, y: 0.08, width: 1, textAlign: 'center' as const },
 ]
 
 export function TextOverlayEditor() {
@@ -35,7 +35,7 @@ export function TextOverlayEditor() {
           <button
             key={p.label}
             className="toe-preset-btn"
-            onClick={() => handleUpdate({ x: p.x, y: p.y, textAlign: p.textAlign })}
+            onClick={() => handleUpdate({ x: p.x, y: p.y, width: p.width, textAlign: p.textAlign })}
           >
             {p.label}
           </button>
@@ -207,13 +207,17 @@ export function TextOverlayEditor() {
 
       {/* Position row */}
       <div className="toe-row toe-range-row">
-        <label className="toe-range-label">X</label>
+        <label className="toe-range-label">Left</label>
         <input
           type="range"
           min={0}
           max={100}
           value={Math.round(overlay.x * 100)}
-          onChange={(e) => handleUpdate({ x: Number(e.target.value) / 100 })}
+          onChange={(e) => {
+            const newX = Number(e.target.value) / 100
+            const maxX = 1 - (overlay.width ?? 1)
+            handleUpdate({ x: Math.min(newX, maxX) })
+          }}
         />
         <span className="toe-range-value">{Math.round(overlay.x * 100)}%</span>
       </div>
@@ -227,6 +231,21 @@ export function TextOverlayEditor() {
           onChange={(e) => handleUpdate({ y: Number(e.target.value) / 100 })}
         />
         <span className="toe-range-value">{Math.round(overlay.y * 100)}%</span>
+      </div>
+      <div className="toe-row toe-range-row">
+        <label className="toe-range-label">Width</label>
+        <input
+          type="range"
+          min={5}
+          max={100}
+          value={Math.round((overlay.width ?? 1) * 100)}
+          onChange={(e) => {
+            const w = Number(e.target.value) / 100
+            const maxW = 1 - overlay.x
+            handleUpdate({ width: Math.min(w, maxW) })
+          }}
+        />
+        <span className="toe-range-value">{Math.round((overlay.width ?? 1) * 100)}%</span>
       </div>
 
       {/* Timing row */}

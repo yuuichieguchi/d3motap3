@@ -352,6 +352,8 @@ pub struct TextOverlay {
     pub end_time: f64,
     pub x: f64,
     pub y: f64,
+    #[serde(default)]
+    pub width: Option<f64>,
     pub font_size: u32,
     pub color: String,
     #[serde(default = "default_font_family")]
@@ -732,10 +734,20 @@ pub fn build_filter_complex(project: &EditorProject, clip_has_audio: &[bool]) ->
         };
 
         // X expression based on text alignment
-        let x_expr = match overlay.text_align.as_str() {
-            "left" => format!("(w*{:.4})", overlay.x),
-            "right" => format!("(w*{:.4}-tw)", overlay.x),
-            _ => format!("(w*{:.4}-tw/2)", overlay.x), // center
+        let x_expr = if let Some(box_width) = overlay.width {
+            // New box model: x is box left edge, width is box width
+            match overlay.text_align.as_str() {
+                "right" => format!("(w*{:.4}+w*{:.4}-tw)", overlay.x, box_width),
+                "center" => format!("(w*{:.4}+(w*{:.4}-tw)/2)", overlay.x, box_width),
+                _ => format!("(w*{:.4})", overlay.x), // left
+            }
+        } else {
+            // Legacy point-anchor model (backward compatibility)
+            match overlay.text_align.as_str() {
+                "left" => format!("(w*{:.4})", overlay.x),
+                "right" => format!("(w*{:.4}-tw)", overlay.x),
+                _ => format!("(w*{:.4}-tw/2)", overlay.x), // center
+            }
         };
 
         let y_expr = format!("(h*{:.4})", overlay.y);
@@ -1559,6 +1571,7 @@ mod tests {
                 end_time: 3000.0,
                 x: 0.5,
                 y: 0.9,
+                width: None,
                 font_size: 48,
                 color: "#ffffff".to_string(),
                 font_family: default_font_family(),
