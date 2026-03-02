@@ -3,7 +3,6 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
 
 /**
  * electron-builder afterPack hook
@@ -56,15 +55,4 @@ exports.default = async function afterPack(context) {
   }
 
   console.log('[afterPack] Native module setup complete');
-
-  // Re-sign the entire .app bundle with ad-hoc signature
-  // Required because Electron Framework has Electron team's signature,
-  // and the main binary needs the same Team ID to load it.
-  const appPath = path.join(
-    context.appOutDir,
-    `${context.packager.appInfo.productFilename}.app`
-  );
-  console.log(`[afterPack] Re-signing app bundle: ${appPath}`);
-  execSync(`codesign --force --deep --sign - "${appPath}"`, { stdio: 'inherit' });
-  console.log('[afterPack] Re-signing complete');
 };
