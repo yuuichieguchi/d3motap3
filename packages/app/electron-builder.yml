@@ -16,7 +16,8 @@ mac:
   category: public.app-category.video
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
-  identity: null
+  hardenedRuntime: true
+  notarize: true
   fileAssociations:
     - ext: d3m
       name: d3motap3 Project
