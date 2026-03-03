@@ -197,6 +197,16 @@ export function App() {
     }
   }, [store])
 
+  const handleScriptCompleted = useCallback(async (outputPath: string) => {
+    try {
+      editorStore.reset()
+      await editorStore.addClip(outputPath)
+      setCurrentView('editor')
+    } catch (err) {
+      console.error('Failed to load script output:', err)
+    }
+  }, [editorStore])
+
   const isRecording = store.status === 'recording'
   const isProcessing = store.status === 'processing'
   const canRecord = store.ffmpegAvailable === true && sourcesStore.activeSources.length > 0
@@ -233,7 +243,7 @@ export function App() {
         <div className="sidebar">
           <SourcePanel onAddSource={() => setAddSourceOpen(true)} />
           <LayoutSelector />
-          <ScriptPanel />
+          <ScriptPanel onScriptCompleted={handleScriptCompleted} />
           <AiPanel />
 
           {/* Existing recording controls section */}

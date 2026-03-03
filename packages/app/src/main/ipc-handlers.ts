@@ -145,7 +145,7 @@ export function registerIpcHandlers(): void {
   ipcMain.handle('script:run', (_event, yamlPath: string) => {
     const outputDir = app.getPath('videos')
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-')
-    const outputPath = join(outputDir, `d3motap3-script-${timestamp}.mp4`)
+    const outputPath = join(outputDir, `d3motap3-script-${timestamp}.d3m`)
     return nativeBridge.scriptRun(yamlPath, outputPath)
   })
 
