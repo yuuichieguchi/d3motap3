@@ -7,6 +7,7 @@ interface ScriptState {
   pollingInterval: ReturnType<typeof setInterval> | null
 
   setYamlPath: (path: string | null) => void
+  resetStatus: () => void
   run: () => Promise<void>
   cancel: () => Promise<void>
   startPolling: () => void
@@ -19,6 +20,8 @@ export const useScriptStore = create<ScriptState>((set, get) => ({
   pollingInterval: null,
 
   setYamlPath: (path) => set({ yamlPath: path }),
+
+  resetStatus: () => set({ status: { status: 'idle' } }),
 
   run: async () => {
     const { yamlPath } = get()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect } from 'react'
 import { useScriptStore } from '../store/script'
 
 interface Props {
@@ -8,17 +8,13 @@ interface Props {
 export function ScriptPanel({ onScriptCompleted }: Props) {
   const store = useScriptStore()
   const { status } = store
-  const handledPathRef = useRef<string | null>(null)
 
   useEffect(() => {
-    if (status.status === 'completed' && onScriptCompleted && status.output_path !== handledPathRef.current) {
-      handledPathRef.current = status.output_path
+    if (status.status === 'completed' && onScriptCompleted) {
       onScriptCompleted(status.output_path)
+      store.resetStatus()
     }
-    if (status.status !== 'completed') {
-      handledPathRef.current = null
-    }
-  }, [status, onScriptCompleted])
+  }, [status, onScriptCompleted, store])
 
   const handleSelectFile = useCallback(async () => {
     try {
